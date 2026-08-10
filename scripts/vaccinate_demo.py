@@ -51,7 +51,8 @@ def main() -> int:
         print("  payloads:")
         for p in payloads:
             tgt = ",".join(p.target_tools) or "-"
-            print(f"    [{p.source:14}] {p.archetype_id:26} ({tgt})")
+            para = "yes" if p.paraphrase else "no"
+            print(f"    [{p.source:14}] {p.archetype_id:26} para={para:3} ({tgt})")
             print(f"        inj : {trunc(p.injection_text)}")
             if p.paraphrase:
                 print(f"        alt : {trunc(p.paraphrase)}")

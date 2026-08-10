@@ -17,5 +17,7 @@ dist/
 # Large external reference dump (regenerable from https://adk.dev/llms-full.txt)
 docs/reference/adk-llms-full.txt
 
-# Claude Code local (machine-specific) settings
-.claude/settings.local.json
+# Claude Code local state (settings.local.json + atomic-write temp files);
+# keep room for a shared, committable settings.json
+.claude/*
+!.claude/settings.json

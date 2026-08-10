@@ -5,3 +5,17 @@ __pycache__/
 *.json
 !package.json
 .DS_Store
+
+# Python build / tooling artifacts (uv.lock IS committed — do not ignore it)
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Large external reference dump (regenerable from https://adk.dev/llms-full.txt)
+docs/reference/adk-llms-full.txt
+
+# Claude Code local (machine-specific) settings
+.claude/settings.local.json

@@ -26,13 +26,15 @@ this." Never state a guess as fact. If you don't know, say you don't know and go
 
 Installed ADK is **2.6.3**. Before writing or modifying any ADK agent code:
 
-1. Start with `docs/reference/adk-llms.txt` (~17 KB, condensed) for the shape of the API.
-2. Drop to `docs/reference/adk-llms-full.txt` (~73k lines) only for exact signatures the
-   condensed file doesn't pin down. Don't load the full file wholesale — grep it for the
-   symbol you need (`grep -n "InMemoryRunner\|run_async" docs/reference/adk-llms-full.txt`).
-3. Cross-check against the actually-installed source under the venv
-   (`google_llm.py`, `InMemoryRunner`, `run_async` signatures) — the reference and the
-   installed version can disagree; the installed version wins at runtime.
+1. Read the installed ADK source FIRST — it is authoritative for signatures and runtime
+   behavior: .venv/lib/python3.12/site-packages/google/adk/
+2. Use `docs/reference/adk-llms-full.txt` (73,457 lines) for idiom and usage prose.
+   Never load it wholesale — grep for the symbol you need, e.g.
+   grep -n InMemoryRunner docs/reference/adk-llms-full.txt
+3. Ignore `docs/reference/adk-llms.txt` — it is a 246-line redirect stub, not a condensed
+   reference. The real content moved to adk.dev.
+4. Any claim about ADK behavior in a report or commit message needs a file:line citation
+   from (1) or (2). No citation, no claim.
 
 **Known trap #1:** `vertexai.Client` is deprecated in favor of `agentplatform.Client`.
 Find the current import pattern in the installed source before writing it — do not

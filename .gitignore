@@ -17,6 +17,10 @@ dist/
 # Large external reference dump (regenerable from https://adk.dev/llms-full.txt)
 docs/reference/adk-llms-full.txt
 
+# Live demo render — regenerable and engine-dependent (goes stale). The demo is
+# meant to be RUN. (One-time probe/matrix diagnostic evidence stays tracked.)
+scripts/vaccinate_demo_output.txt
+
 # Claude Code local state (settings.local.json + atomic-write temp files);
 # keep room for a shared, committable settings.json
 .claude/*

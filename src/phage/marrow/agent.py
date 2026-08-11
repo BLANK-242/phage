@@ -57,6 +57,44 @@ per-target isolation correct — the immediate synchronous read is.
 Red line (CLAUDE.md): a single config.GEMINI_MODEL for all archetypes with
 local-fallback on refusal lives entirely in the engine; this module adds no
 model, no routing, no client.
+
+FIRE-AND-CAPTURE (this commit): after collecting a target's payloads, MARROW
+fires each one at the REAL target agent (agents/order_intake, .../
+supplier_relay, .../stock_keeper, .../quote_bot — commit a3aad51) via its own
+InMemoryRunner + a session scoped to that target+payload, and records the
+session_id. Verified facts:
+  - Direct agent-to-agent invocation via InMemoryRunner is the same pattern
+    already proven four times (run_local.py, run_vaccinator_agent.py,
+    run_marrow.py, run_fleet_smoke.py) — just pointed at a target agent with
+    a payload string as the new message, instead of at VACCINATOR/MARROW/HELLO.
+  - Capturing what a fired payload actually does requires a TracerProvider to
+    be installed BEFORE these calls happen — confirmed NOT installed by
+    default (telemetry/setup.py: maybe_set_otel_providers only calls
+    trace.set_tracer_provider(...) if span_processors is non-empty, which
+    needs either explicit hooks or OTEL_EXPORTER_OTLP_*ENDPOINT env vars,
+    neither present here). Installing it is an ENTRY-POINT concern (matches
+    how real ADK deployments configure tracing at the server/CLI level, not
+    inside agent code) — this module does NOT install a TracerProvider
+    itself; scripts/run_marrow.py does, once, before any run.
+  - execute_tool spans carry gcp.vertex.agent.tool_call_args / tool_response
+    as real JSON by default (ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS defaults
+    'true', telemetry/context.py:211) — no extra config needed for content.
+  - `agents/*` is a repo-root sibling of `src/`, not part of the installed
+    `phage` package, so the agents.* imports below only resolve if the repo
+    root is already on sys.path — the entry script (run_marrow.py) must do
+    that (matching run_local.py's/run_fleet_smoke.py's existing pattern for
+    their own target-agent imports) BEFORE importing anything from
+    phage.marrow. This module does not mutate sys.path itself: phage.* stays
+    a clean, independently-packaged library; agents/* dependency is an
+    entry-point wiring concern, consistent with the existing one-directional
+    separation (agents/hello/agent.py: "must not import the wider phage
+    package").
+  - Only the session_id is stored, not the trace itself (marrow.
+    fleet_fire_sessions, keyed the same shape as marrow.fleet_payloads:
+    {target_id: [session_id, ...]}, parallel-indexed with fleet_payloads'
+    per-target payload list) — reading the trace back is a consumer concern
+    (SENTINEL, later), via SqliteSpanExporter.get_all_spans_for_session
+    (telemetry/sqlite_span_exporter.py:214-235).
 """
 
 from __future__ import annotations
@@ -67,9 +105,15 @@ from typing_extensions import override
 
 from google.adk.agents.context import Context
 from google.adk.events import Event, EventActions
+from google.adk.runners import InMemoryRunner
 from google.adk.workflow import Node
 from google.genai import types
+from opentelemetry import context as otel_context_api
 
+from agents.order_intake.agent import root_agent as _order_intake_agent
+from agents.quote_bot.agent import root_agent as _quote_bot_agent
+from agents.stock_keeper.agent import root_agent as _stock_keeper_agent
+from agents.supplier_relay.agent import root_agent as _supplier_relay_agent
 from phage.targets import FLEET
 from phage.vaccinator.adk_agent import (
     STATE_PAYLOADS,
@@ -77,6 +121,21 @@ from phage.vaccinator.adk_agent import (
     STATE_TOOL_SCOPE,
     VACCINATOR,
 )
+
+# Registry-id (targets.py, hyphenated) -> the real target agent to fire at.
+# Explicit, not derived by string transform, because the agent's own `name`
+# field (underscored, identifier-validated) and the registry id (hyphenated)
+# are deliberately different namespaces (established when the fleet was built,
+# commit a3aad51) — a mechanical hyphen/underscore swap would be fragile.
+_TARGET_AGENTS = {
+    "ORDER-INTAKE": _order_intake_agent,
+    "SUPPLIER-RELAY": _supplier_relay_agent,
+    "STOCK-KEEPER": _stock_keeper_agent,
+    "QUOTE-BOT": _quote_bot_agent,
+}
+
+_FIRE_APP = "phage-marrow-fire"
+_FIRE_USER = "fire"
 
 # MARROW-owned state key (dotted-namespace convention matches vaccinator.* in
 # adk_agent.py). Needed because session.state["vaccinator.payloads"] is
@@ -86,6 +145,13 @@ from phage.vaccinator.adk_agent import (
 # to state. Shared with tests (scripts/run_marrow.py) — import this, don't
 # re-type the string.
 STATE_FLEET_PAYLOADS = "marrow.fleet_payloads"
+
+# {target_id: [session_id, ...]} — one session_id per fired payload, same
+# order/shape as STATE_FLEET_PAYLOADS' per-target payload list, so a caller
+# can zip the two by position to correlate a specific payload with its trace.
+# Only the session_id is stored; the trace itself is a read-back concern for
+# whoever consumes this next (SqliteSpanExporter.get_all_spans_for_session).
+STATE_FLEET_FIRE_SESSIONS = "marrow.fleet_fire_sessions"
 
 
 class MARROW(Node):
@@ -110,6 +176,7 @@ class MARROW(Node):
         self, *, ctx: Context, node_input: Any = None
     ) -> AsyncGenerator[Any, None]:
         results: dict[str, list[dict[str, Any]]] = {}
+        fire_sessions: dict[str, list[str]] = {}
 
         for target in FLEET:
             # 1. Seed VACCINATOR's inputs into session state via
@@ -148,12 +215,75 @@ class MARROW(Node):
             #    (sets no node output; see module docstring).
             results[target.id] = list(ctx.session.state.get(STATE_PAYLOADS) or [])
 
-        # 4. Fleet summary event.
+            # 4. Fire each of this target's payloads at the REAL target agent
+            #    (direct agent-to-agent invocation via InMemoryRunner — the
+            #    same proven pattern as run_local.py/run_fleet_smoke.py, just
+            #    pointed at a target with the payload's injection_text as the
+            #    new message). One session per payload, so its trace can be
+            #    pulled back individually by session_id later (SENTINEL,
+            #    next). Sequential, same as the rest of this loop — no
+            #    concurrency. One payload's failure (e.g. a transient
+            #    call error) must not abort the rest of the fleet loop, so
+            #    it's caught and skipped rather than propagated — the same
+            #    per-item isolation the engine already uses for its own
+            #    per-archetype Gemini calls (vaccinator/engine.py).
+            #
+            #    otel_context_api.attach(Context())/detach(...) around each
+            #    call: WITHOUT this, every fired payload in this loop inherits
+            #    ONE shared trace_id from the outer run_async(MARROW()) call
+            #    that is still the "current span" for the whole lifetime of
+            #    this generator — confirmed empirically (queried
+            #    phage_traces.db directly): all ~28 firings across all 4
+            #    targets landed under a single trace_id, so
+            #    SqliteSpanExporter.get_all_spans_for_session(session_id)
+            #    (which looks up by trace_id, not the session_id column —
+            #    sqlite_span_exporter.py's own docstring) returned the WHOLE
+            #    fleet's spans for ANY one session_id, not just that firing's.
+            #    Detaching to a fresh, empty Context before each fire call
+            #    forces ADK's invoke_agent span to start a genuinely new root
+            #    trace, so each firing gets its own trace_id and
+            #    get_all_spans_for_session(session_id) is correctly isolated
+            #    to just that one firing.
+            target_agent = _TARGET_AGENTS.get(target.id)
+            session_ids: list[str] = []
+            if target_agent is not None:
+                fire_runner = InMemoryRunner(agent=target_agent, app_name=_FIRE_APP)
+                for payload in results[target.id]:
+                    session_id = f"fire-{target.id}-{payload['archetype_id']}"
+                    otel_token = otel_context_api.attach(otel_context_api.Context())
+                    try:
+                        await fire_runner.session_service.create_session(
+                            app_name=_FIRE_APP,
+                            user_id=_FIRE_USER,
+                            session_id=session_id,
+                        )
+                        message = types.Content(
+                            role="user",
+                            parts=[types.Part(text=payload["injection_text"])],
+                        )
+                        async for _fired_event in fire_runner.run_async(
+                            user_id=_FIRE_USER,
+                            session_id=session_id,
+                            new_message=message,
+                        ):
+                            pass  # drain; the trace is what matters here, not the reply
+                        session_ids.append(session_id)
+                    except Exception as exc:  # noqa: BLE001 -- isolate per payload
+                        print(
+                            f"MARROW: fire failed for {target.id}/"
+                            f"{payload['archetype_id']}: {exc}"
+                        )
+                    finally:
+                        otel_context_api.detach(otel_token)
+            fire_sessions[target.id] = session_ids
+
+        # 5. Fleet summary event.
         total = sum(len(ps) for ps in results.values())
         total_gemini = sum(
             1 for ps in results.values() for p in ps if p.get("source") == "gemini"
         )
         total_local = total - total_gemini
+        total_fired = sum(len(sids) for sids in fire_sessions.values())
         per_target = ", ".join(f"{tid}={len(ps)}" for tid, ps in results.items())
 
         yield Event(
@@ -165,7 +295,8 @@ class MARROW(Node):
                     types.Part.from_text(
                         text=(
                             f"MARROW: {total} payloads across {len(results)} targets "
-                            f"({total_gemini} gemini / {total_local} local-fallback) "
+                            f"({total_gemini} gemini / {total_local} local-fallback), "
+                            f"{total_fired}/{total} fired at real targets "
                             f"— {per_target}"
                         )
                     )
@@ -173,6 +304,12 @@ class MARROW(Node):
             ),
             # Structured per-target results, so a caller can verify each
             # target's payloads without text-parsing the summary above (see
-            # STATE_FLEET_PAYLOADS docstring for why this key exists at all).
-            actions=EventActions(state_delta={STATE_FLEET_PAYLOADS: results}),
+            # STATE_FLEET_PAYLOADS / STATE_FLEET_FIRE_SESSIONS docstrings for
+            # why these keys exist at all).
+            actions=EventActions(
+                state_delta={
+                    STATE_FLEET_PAYLOADS: results,
+                    STATE_FLEET_FIRE_SESSIONS: fire_sessions,
+                }
+            ),
         )

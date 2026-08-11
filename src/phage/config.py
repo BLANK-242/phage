@@ -42,10 +42,13 @@ GEMINI_MODEL = os.environ.get("PHAGE_GEMINI_MODEL", "gemini-3.5-flash")
 # text-embedding-005: ARCHIVIST semantic recognition (cosine similarity). Regional.
 EMBEDDING_MODEL = os.environ.get("PHAGE_EMBEDDING_MODEL", "text-embedding-005")
 
-# Gemma: SENTINEL cheap first-pass triage tier. Provisional id — the exact
-# Vertex model string is resolved empirically when SENTINEL is built (Phase 2),
-# same discipline as the Gemini id above.
-GEMMA_MODEL = os.environ.get("PHAGE_GEMMA_MODEL", "gemma-3-27b-it")
+# Gemma: SENTINEL cheap first-pass triage tier. Resolved empirically when
+# SENTINEL was built, same discipline as the Gemini id above: "gemma-3-27b-it"
+# 404s at both us-central1 and global on this project (Publisher model not
+# found). "gemma-4-26b-a4b-it-maas" is the verified-working id, global only —
+# confirmed via a direct generate_content call, same routing pattern as
+# Gemini 3.x.
+GEMMA_MODEL = os.environ.get("PHAGE_GEMMA_MODEL", "gemma-4-26b-a4b-it-maas")
 
 # --- Agent Engine (MARROW orchestrator + Memory Bank) -------------------------
 AGENT_ENGINE_ID = os.environ.get("PHAGE_AGENT_ENGINE_ID", "1868793184486686720")

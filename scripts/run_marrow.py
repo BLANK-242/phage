@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
-"""End-to-end self-check for MARROW's run_node seam into VACCINATOR.
+"""End-to-end self-check for MARROW's fleet iteration via run_node into VACCINATOR.
 
 Mirrors scripts/run_vaccinator_agent.py. Two modes:
 
-  (default)      Runs MARROW via InMemoryRunner. MARROW seeds the target's
-                 tool_scope into session state and fans out into VACCINATOR via
-                 ctx.run_node; we then read state["vaccinator.payloads"] back and
-                 assert the per-archetype provenance mix — proving payloads came
-                 back THROUGH the node seam, not by a direct engine call. Gemini on.
+  (default)      Runs MARROW via InMemoryRunner. MARROW loops over the
+                 registered SAIL fleet (src/phage/targets.py), seeding each
+                 target's tool_scope into session state and fanning out into
+                 VACCINATOR via ctx.run_node in turn. session.state["vaccinator.
+                 payloads"] is overwritten every iteration (use_sub_branch does
+                 not isolate state — see marrow/agent.py's module docstring), so
+                 this reads MARROW's own structured aggregate,
+                 state["marrow.fleet_payloads"], and asserts every FLEET target
+                 returned at least one payload via run_node. Gemini on.
 
   --no-gemini    Offline guarantee: calls the engine directly with
-                 use_gemini=False for the same target. VACCINATOR's engine call
-                 is fixed to default args, so (as in run_vaccinator_agent.py) this
-                 leg bypasses the agent to prove the deterministic path — zero
-                 network, a payload per applicable archetype.
+                 use_gemini=False for every FLEET target. Bypasses the agent
+                 (VACCINATOR's own engine call is fixed to default args) —
+                 zero network, a payload per applicable archetype, all
+                 local-fallback, for the whole fleet.
 """
 
 import asyncio
@@ -22,13 +26,11 @@ import sys
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
-from phage.marrow.agent import _DEMO_TARGET, MARROW
-from phage.vaccinator.adk_agent import STATE_PAYLOADS
+from phage.marrow.agent import MARROW, STATE_FLEET_PAYLOADS
+from phage.targets import FLEET
 from phage.vaccinator.engine import generate_payloads
 
 APP = "phage-marrow"
-TARGET_ID = _DEMO_TARGET["target_id"]
-TOOL_SCOPE = _DEMO_TARGET["tool_scope"]
 
 
 def _print_provenance(entries: list[tuple[str, str]]) -> None:
@@ -43,41 +45,33 @@ def _fail(problems: list[str]) -> int:
     return 1
 
 
-def _provenance_mix_problems(entries: list[tuple[str, str]]) -> list[str]:
-    """Same provenance-mix assertion as run_vaccinator_agent.py: on this sink
-    target, data-exfiltration must be local-fallback while at least one non-exfil
-    archetype is gemini-tailored — proof the per-archetype mix survived run_node.
-    """
-    problems: list[str] = []
-    by_id = dict(entries)
-    if by_id.get("data-exfiltration") != "local-fallback":
-        problems.append("data-exfiltration should be local-fallback on a sink target")
-    if not any(src == "gemini" for aid, src in entries if aid != "data-exfiltration"):
-        problems.append("expected at least one non-exfil archetype tailored by gemini")
-    return problems
-
-
 async def run_local_only() -> int:
-    print(f"[local-only] target={TARGET_ID}  tool_scope={TOOL_SCOPE}\n")
-    payloads = generate_payloads(TOOL_SCOPE, use_gemini=False)
-    entries = [(p.archetype_id, p.source) for p in payloads]
-    _print_provenance(entries)
-
+    """Engine local-only path, direct call per FLEET target — zero network."""
     problems: list[str] = []
-    if not payloads:
-        problems.append("no payloads generated")
-    if any(src != "local-fallback" for _, src in entries):
-        problems.append("expected ALL payloads local-fallback with use_gemini=False")
+    for target in FLEET:
+        print(f"[local-only] target={target.id}  tool_scope={target.tool_scope}")
+        payloads = generate_payloads(target.tool_scope, use_gemini=False)
+        entries = [(p.archetype_id, p.source) for p in payloads]
+        _print_provenance(entries)
+        print()
 
-    print()
+        if not payloads:
+            problems.append(f"{target.id}: no payloads generated")
+        if any(src != "local-fallback" for _, src in entries):
+            problems.append(f"{target.id}: expected ALL payloads local-fallback with use_gemini=False")
+
     if problems:
         return _fail(problems)
-    print(f"SELF-CHECK: PASS — {len(payloads)} payloads, all local-fallback, zero network.")
+    print(
+        f"SELF-CHECK: PASS — all {len(FLEET)} targets produced local-fallback "
+        "payloads, zero network."
+    )
     return 0
 
 
 async def run_via_marrow() -> int:
-    print(f"[marrow]     target={TARGET_ID}  (MARROW seeds state + run_node -> VACCINATOR)\n")
+    """Full ADK wrapper path: MARROW loops FLEET, seeding state + run_node -> VACCINATOR per target."""
+    print(f"[marrow]     fleet={[t.id for t in FLEET]}\n")
 
     runner = InMemoryRunner(agent=MARROW(), app_name=APP)
     session = await runner.session_service.create_session(app_name=APP, user_id="dev")
@@ -91,24 +85,35 @@ async def run_via_marrow() -> int:
             if text:
                 print("  event:", text)
 
-    final = await runner.session_service.get_session(
+    final_session = await runner.session_service.get_session(
         app_name=APP, user_id="dev", session_id=session.id
     )
-    payloads_raw = (final.state if final else {}).get(STATE_PAYLOADS)
+    fleet_payloads = (final_session.state if final_session else {}).get(STATE_FLEET_PAYLOADS)
 
     print()
-    if not payloads_raw:
-        return _fail([f"session.state[{STATE_PAYLOADS!r}] missing/empty after run_node"])
+    if not fleet_payloads:
+        return _fail([f"session.state[{STATE_FLEET_PAYLOADS!r}] missing/empty after the run"])
 
-    print(f"  {len(payloads_raw)} payloads returned THROUGH run_node into session.state[{STATE_PAYLOADS!r}]:")
-    entries = [(d["archetype_id"], d["source"]) for d in payloads_raw]
-    _print_provenance(entries)
+    problems: list[str] = []
+    expected_ids = {t.id for t in FLEET}
+    seen_ids = set(fleet_payloads.keys())
+    if seen_ids != expected_ids:
+        problems.append(f"target mismatch: expected {sorted(expected_ids)}, got {sorted(seen_ids)}")
 
-    problems = _provenance_mix_problems(entries)
+    for target in FLEET:
+        payloads = fleet_payloads.get(target.id) or []
+        print(f"  {target.id}: {len(payloads)} payloads")
+        _print_provenance([(p["archetype_id"], p["source"]) for p in payloads])
+        if not payloads:
+            problems.append(f"{target.id}: no payloads returned via run_node")
+
     print()
     if problems:
         return _fail(problems)
-    print("SELF-CHECK: PASS — payloads returned via run_node; per-archetype provenance mix intact.")
+    print(
+        f"SELF-CHECK: PASS — all {len(FLEET)} fleet targets returned at least "
+        "one payload via run_node."
+    )
     return 0
 
 

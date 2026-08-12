@@ -25,3 +25,5 @@ scripts/vaccinate_demo_output.txt
 # keep room for a shared, committable settings.json
 .claude/*
 !.claude/settings.json
+
+phage_traces*.db

@@ -267,45 +267,93 @@ async def run_via_marrow(exporter: SqliteSpanExporter) -> int:
     if problems:
         return _fail(problems)
 
-    # Step 3: pull a real trace back for at least one fired payload, proving
-    # the whole chain (generate, fire, capture) end to end — not just that it
-    # ran without error. Prefer data-exfiltration, same reasoning as
-    # run_local_only: it's the one archetype template concrete enough
-    # (a real destination address, a specific source->sink instruction) to
-    # reliably produce an actual tool call rather than a declined request.
-    spot_target_id, spot_session_id = None, None
+    # Step 3 (rewritten this commit — was a SUPPLIER-RELAY/data-exfiltration
+    # spot-check hardcoded in commit b11a879, before SENTINEL existed. A
+    # single fixed target/archetype cannot survive real model
+    # non-determinism: a live run had that exact payload Gemini-sourced (not
+    # the fixed local-fallback template) and the target declined it, which
+    # SENTINEL correctly triaged `declined` (0 relevant spans, exactly its
+    # documented behavior — triage.py's decisive-tool/matching-span
+    # pre-filter), but the old check still failed the whole script on an
+    # outcome that was never actually a failure. Two checks that do not
+    # depend on which specific payloads happen to land on a given run:
+
+    # 3a. Capture floor: total spans across the FULL fired set > 0 — proves
+    # OTel capture is active at all. Deliberately not scoped to
+    # execute_tool spans specifically: a target that calls no tools still
+    # emits other spans (e.g. invoke_agent) — confirmed by the run that
+    # motivated this fix, where the declined firing still had 4 spans
+    # total, just 0 execute_tool ones. This only proves capture is wired;
+    # 3b below is what checks actual tool-call evidence.
+    step3_problems: list[str] = []
+    total_fired = sum(len(fleet_fire_sessions.get(t.id) or []) for t in FLEET)
+    total_spans = sum(
+        len(exporter.get_all_spans_for_session(sid))
+        for t in FLEET
+        for sid in (fleet_fire_sessions.get(t.id) or [])
+    )
+    print(f"  capture floor: {total_spans} spans across {total_fired} fired sessions")
+    if total_spans == 0:
+        step3_problems.append(
+            "capture floor: zero spans captured across the full fired set"
+        )
+
+    # 3b. Self-consistency: every SENTINEL verdict of "landed" must be
+    # backed by real evidence in the trace DB — non-empty supporting_spans
+    # (TriageResult.supporting_spans, triage.py:110; serialized dict key
+    # confirmed at sentinel/adk_agent.py:79-90) that actually exist as
+    # execute_tool spans for that firing's session_id. Deterministic
+    # regardless of how many (if any) payloads land on a given run:
+    # vacuously true if SENTINEL reports zero "landed" verdicts for the
+    # whole run — the loop body below only ever runs for a "landed"
+    # verdict, so zero of them means zero iterations and step3_problems
+    # gets nothing from this check either way (reasoned through, not
+    # fabricated — forcing a run to land would reintroduce the same
+    # non-determinism problem one level up). Catches a real regression —
+    # SENTINEL claiming "landed" with no evidence — the old spot-check
+    # never could, since it only ever looked at one hardcoded session
+    # regardless of what SENTINEL actually said.
+    landed_checked = 0
     for target in FLEET:
-        payloads = fleet_payloads.get(target.id) or []
-        sessions = fleet_fire_sessions.get(target.id) or []
-        for idx, p in enumerate(payloads):
-            if p["archetype_id"] == "data-exfiltration" and idx < len(sessions):
-                spot_target_id, spot_session_id = target.id, sessions[idx]
-                break
-        if spot_session_id:
-            break
-    if spot_session_id is None:
-        spot_target_id = FLEET[0].id
-        spot_session_id = fleet_fire_sessions[FLEET[0].id][0]
-
-    print(f"  spot-check: {spot_target_id} / session {spot_session_id!r}")
-    spans = exporter.get_all_spans_for_session(spot_session_id)
-    tool_spans = [s for s in spans if s.name.startswith("execute_tool")]
-    print(f"    {len(spans)} spans total, {len(tool_spans)} execute_tool spans")
-    for s in tool_spans:
-        _print_span(s)
-
-    if not tool_spans:
-        return _fail([f"no execute_tool spans captured for session {spot_session_id}"])
-    if not any(s.attributes.get("gcp.vertex.agent.tool_call_args") not in (None, "{}") for s in tool_spans):
-        return _fail([f"execute_tool spans present but tool_call_args empty for session {spot_session_id}"])
+        for v in fleet_verdicts.get(target.id) or []:
+            if v is None or v["verdict"] != "landed":
+                continue
+            landed_checked += 1
+            supporting = v["supporting_spans"]
+            if not supporting:
+                step3_problems.append(
+                    f"{target.id}/{v['archetype_id']}: verdict=landed but "
+                    "supporting_spans is empty"
+                )
+                continue
+            session_spans = exporter.get_all_spans_for_session(v["session_id"])
+            real_names = {
+                s.name for s in session_spans if s.name.startswith("execute_tool")
+            }
+            missing = [name for name in supporting if name not in real_names]
+            if missing:
+                step3_problems.append(
+                    f"{target.id}/{v['archetype_id']}: verdict=landed but "
+                    f"supporting_spans {missing} not found as execute_tool "
+                    f"spans for session {v['session_id']!r}"
+                )
+    print(
+        f"  self-consistency: {landed_checked} 'landed' verdict(s) checked "
+        "against the trace DB"
+    )
 
     print()
+    if step3_problems:
+        return _fail(step3_problems)
+
     print(
         f"SELF-CHECK: PASS — all {len(FLEET)} fleet targets returned at least "
         "one payload via run_node, every target fired at its real agent, "
         "SENTINEL triaged at least one firing per target (sentinel.verdict "
-        "observed via ctx.session.state), and real execute_tool span content "
-        "confirmed for at least one firing."
+        "observed via ctx.session.state), capture floor confirmed "
+        f"({total_spans} spans / {total_fired} fired sessions), and every "
+        f"'landed' verdict ({landed_checked}) is backed by real execute_tool "
+        "spans in the trace DB."
     )
     return 0
 

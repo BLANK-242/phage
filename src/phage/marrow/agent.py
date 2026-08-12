@@ -4,7 +4,8 @@ Iterates the registered SAIL fleet (src/phage/targets.py) and fans out into
 VACCINATOR once per target via the `ctx.run_node()` seam proven in the v0
 single-target commit. Sequential only — no asyncio.gather, no concurrency
 (out of scope for this commit). SENTINEL now triages every firing in this
-same loop (see "SENTINEL WIRING" below); no MACROPHAGE routing yet.
+same loop (see "SENTINEL WIRING" below), and MACROPHAGE now acts on a
+"landed" verdict immediately after (see "MACROPHAGE WIRING" below).
 
 MARROW is a workflow `Node`, not a `BaseAgent`/`SequentialAgent`: the shipped
 SequentialAgent/ParallelAgent/LoopAgent are all @deprecated in favor of Workflow
@@ -140,10 +141,35 @@ VACCINATOR's own invocation.
     ({target_id: [verdict_dict_or_None, ...]}), positionally parallel to
     fleet_fire_sessions — both lists grow together, only on a fire that
     actually succeeded.
-  - A MACROPHAGE placeholder is left at the equivalent point in the loop
-    (still undesigned — see docs/2026-08-12_PHAGE.md's open questions):
-    no MACROPHAGE code this commit, mirroring how SENTINEL's own
-    placeholder sat here before this commit.
+  - A MACROPHAGE placeholder was left at the equivalent point in the loop
+    (undesigned at the time — see docs/2026-08-12_PHAGE.md's open
+    questions); now replaced (see "MACROPHAGE WIRING" below).
+
+MACROPHAGE WIRING (this commit): immediately after SENTINEL, in the same
+try block, same firing — mirrors the SENTINEL WIRING above exactly:
+ctx.run_node(MACROPHAGE(), run_id=session_id, use_sub_branch=True), own
+try/except so a containment failure is reported as one, not conflated with
+a triage or fire failure, and does not abort the rest of the fleet loop.
+
+  - MACROPHAGE reads session.state["sentinel.verdict"] directly — the same
+    key SENTINEL just wrote above, still fresh (nothing overwrites it
+    between SENTINEL's write and MACROPHAGE's read at this point in the
+    same iteration). No macrophage.* input key is seeded here: that dict
+    already carries target_id/verdict/supporting_spans
+    (sentinel/adk_agent.py:79-90), which is everything MACROPHAGE needs.
+  - The SENTINEL try block's except now `continue`s (previously it just
+    fell through to the placeholder) — required so MACROPHAGE is never
+    reached when SENTINEL itself failed for this firing, which would
+    otherwise read a STALE sentinel.verdict left over from an earlier
+    firing and act on the wrong evidence. This is the same per-item-skip
+    discipline the fire's own except already used one level up.
+  - macrophage/adk_agent.py resolves target_id -> the real live Agent
+    object via _TARGET_AGENTS (this module, above) — imported directly by
+    that module rather than passed through state; see that module's
+    docstring for the confirmed reasoning (targets.py's FLEET has no live
+    connection to _TARGET_AGENTS at all, and a live object can't cleanly
+    round-trip through this codebase's JSON-friendly session-state
+    convention).
 """
 
 from __future__ import annotations
@@ -163,6 +189,7 @@ from agents.order_intake.agent import root_agent as _order_intake_agent
 from agents.quote_bot.agent import root_agent as _quote_bot_agent
 from agents.stock_keeper.agent import root_agent as _stock_keeper_agent
 from agents.supplier_relay.agent import root_agent as _supplier_relay_agent
+from phage.macrophage.adk_agent import MACROPHAGE
 from phage.sentinel.adk_agent import (
     SENTINEL,
     STATE_PAYLOAD as SENTINEL_STATE_PAYLOAD,
@@ -405,13 +432,31 @@ class MARROW(Node):
                             f"{payload['archetype_id']}: {exc}"
                         )
                         target_verdicts.append(None)
+                        continue
 
-                    # MACROPHAGE containment call goes here next, once its
-                    # containment action is designed (still undesigned —
-                    # docs/2026-08-12_PHAGE.md's open questions). Mirrors
-                    # exactly how this SENTINEL call's own placeholder
-                    # existed at this point before this commit. No
-                    # MACROPHAGE code yet.
+                    # Immediately act on this firing's SENTINEL verdict via
+                    # MACROPHAGE — same ctx.run_node() mechanism, mirrors
+                    # exactly how SENTINEL itself was wired in above (see
+                    # "MACROPHAGE WIRING" in the module docstring). No
+                    # state to seed here: MACROPHAGE reads
+                    # session.state["sentinel.verdict"] directly, still
+                    # fresh from the read above. Own try/except: a
+                    # containment failure is a different fact than a
+                    # triage failure and must not be reported as one, and
+                    # must not abort the rest of the fleet loop either
+                    # (same per-item isolation as fire/triage above). The
+                    # `continue` in SENTINEL's except above guarantees this
+                    # is only ever reached with a fresh, this-firing
+                    # verdict already in state.
+                    try:
+                        await ctx.run_node(
+                            MACROPHAGE(), run_id=session_id, use_sub_branch=True
+                        )
+                    except Exception as exc:  # noqa: BLE001 -- isolate per payload
+                        print(
+                            f"MARROW: containment failed for {target.id}/"
+                            f"{payload['archetype_id']}: {exc}"
+                        )
             fire_sessions[target.id] = session_ids
             verdicts[target.id] = target_verdicts
 

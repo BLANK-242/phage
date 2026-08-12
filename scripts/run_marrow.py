@@ -11,7 +11,12 @@ Mirrors scripts/run_vaccinator_agent.py. Two modes:
                  not isolate state — see marrow/agent.py's module docstring), so
                  this reads MARROW's own structured aggregate,
                  state["marrow.fleet_payloads"], and asserts every FLEET target
-                 returned at least one payload via run_node. Gemini on.
+                 returned at least one payload via run_node. MARROW's session is
+                 seeded (below) with sentinel.trace_db_path = TRACE_DB_PATH, the
+                 same db this script's own TracerProvider writes to, so MARROW's
+                 now-wired SENTINEL call can read each firing's spans back from
+                 it; this then also reads state["marrow.fleet_verdicts"] and
+                 asserts every fired payload was triaged. Gemini on.
 
   --no-gemini    Offline guarantee: calls the engine directly with
                  use_gemini=False for every FLEET target. Bypasses the agent
@@ -50,8 +55,10 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor  # noqa: E402
 
 from phage.marrow.agent import (  # noqa: E402
     MARROW,
+    SENTINEL_STATE_TRACE_DB_PATH,
     STATE_FLEET_FIRE_SESSIONS,
     STATE_FLEET_PAYLOADS,
+    STATE_FLEET_VERDICTS,
 )
 from phage.targets import FLEET  # noqa: E402
 from phage.vaccinator.engine import generate_payloads  # noqa: E402
@@ -195,7 +202,19 @@ async def run_via_marrow(exporter: SqliteSpanExporter) -> int:
     print(f"[marrow]     fleet={[t.id for t in FLEET]}\n")
 
     runner = InMemoryRunner(agent=MARROW(), app_name=APP)
-    session = await runner.session_service.create_session(app_name=APP, user_id="dev")
+    # Seed sentinel.trace_db_path at session creation: MARROW's now-wired
+    # SENTINEL call reads it from session.state (marrow/agent.py's "SENTINEL
+    # WIRING" docstring section) rather than hardcoding a repo-relative path
+    # into library code — the entry point owns tracing config, same
+    # separation already established for the TracerProvider install itself
+    # (marrow/agent.py's FIRE-AND-CAPTURE section). Same TRACE_DB_PATH this
+    # script's own install_tracer_provider() already wrote spans to, above —
+    # one path, one source of truth.
+    session = await runner.session_service.create_session(
+        app_name=APP,
+        user_id="dev",
+        state={SENTINEL_STATE_TRACE_DB_PATH: TRACE_DB_PATH},
+    )
     message = types.Content(role="user", parts=[types.Part(text="run")])
 
     async for event in runner.run_async(
@@ -212,12 +231,15 @@ async def run_via_marrow(exporter: SqliteSpanExporter) -> int:
     state = final_session.state if final_session else {}
     fleet_payloads = state.get(STATE_FLEET_PAYLOADS)
     fleet_fire_sessions = state.get(STATE_FLEET_FIRE_SESSIONS)
+    fleet_verdicts = state.get(STATE_FLEET_VERDICTS)
 
     print()
     if not fleet_payloads:
         return _fail([f"session.state[{STATE_FLEET_PAYLOADS!r}] missing/empty after the run"])
     if not fleet_fire_sessions:
         return _fail([f"session.state[{STATE_FLEET_FIRE_SESSIONS!r}] missing/empty after the run"])
+    if not fleet_verdicts:
+        return _fail([f"session.state[{STATE_FLEET_VERDICTS!r}] missing/empty after the run"])
 
     problems: list[str] = []
     expected_ids = {t.id for t in FLEET}
@@ -228,12 +250,18 @@ async def run_via_marrow(exporter: SqliteSpanExporter) -> int:
     for target in FLEET:
         payloads = fleet_payloads.get(target.id) or []
         fired = fleet_fire_sessions.get(target.id) or []
-        print(f"  {target.id}: {len(payloads)} payloads, {len(fired)} fired")
+        verdicts = fleet_verdicts.get(target.id) or []
+        print(f"  {target.id}: {len(payloads)} payloads, {len(fired)} fired, {len(verdicts)} triaged")
         _print_provenance([(p["archetype_id"], p["source"]) for p in payloads])
+        for v in verdicts:
+            if v is not None:
+                print(f"    [{v['tier']:9}] {v['archetype_id']} -> {v['verdict']}")
         if not payloads:
             problems.append(f"{target.id}: no payloads returned via run_node")
         if not fired:
             problems.append(f"{target.id}: no payloads were fired at the real target agent")
+        if fired and not any(v is not None for v in verdicts):
+            problems.append(f"{target.id}: fired but sentinel.verdict never observed for any firing")
 
     print()
     if problems:
@@ -274,8 +302,10 @@ async def run_via_marrow(exporter: SqliteSpanExporter) -> int:
     print()
     print(
         f"SELF-CHECK: PASS — all {len(FLEET)} fleet targets returned at least "
-        "one payload via run_node, every target fired at its real agent, and "
-        "real execute_tool span content confirmed for at least one firing."
+        "one payload via run_node, every target fired at its real agent, "
+        "SENTINEL triaged at least one firing per target (sentinel.verdict "
+        "observed via ctx.session.state), and real execute_tool span content "
+        "confirmed for at least one firing."
     )
     return 0
 

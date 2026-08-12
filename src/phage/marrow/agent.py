@@ -3,7 +3,8 @@
 Iterates the registered SAIL fleet (src/phage/targets.py) and fans out into
 VACCINATOR once per target via the `ctx.run_node()` seam proven in the v0
 single-target commit. Sequential only — no asyncio.gather, no concurrency
-(out of scope for this commit). No SENTINEL routing yet.
+(out of scope for this commit). SENTINEL now triages every firing in this
+same loop (see "SENTINEL WIRING" below); no MACROPHAGE routing yet.
 
 MARROW is a workflow `Node`, not a `BaseAgent`/`SequentialAgent`: the shipped
 SequentialAgent/ParallelAgent/LoopAgent are all @deprecated in favor of Workflow
@@ -92,9 +93,57 @@ session_id. Verified facts:
   - Only the session_id is stored, not the trace itself (marrow.
     fleet_fire_sessions, keyed the same shape as marrow.fleet_payloads:
     {target_id: [session_id, ...]}, parallel-indexed with fleet_payloads'
-    per-target payload list) — reading the trace back is a consumer concern
-    (SENTINEL, later), via SqliteSpanExporter.get_all_spans_for_session
+    per-target payload list) — reading the trace back was left as a
+    consumer concern at the time (SENTINEL, later); SENTINEL itself now
+    does that read (see "SENTINEL WIRING" below), via
+    SqliteSpanExporter.get_all_spans_for_session
     (telemetry/sqlite_span_exporter.py:214-235).
+
+SENTINEL WIRING (this commit): immediately after each payload fire is
+captured (previous section), MARROW seeds SENTINEL's inputs and fans out
+into it via ctx.run_node — the identical mechanism used for VACCINATOR
+above (step 2 in run_node_impl), confirmed generic rather than
+VACCINATOR-specific per this commit's own recon brief: ctx.run_node's
+`node` param is typed NodeLike = BaseNode | BaseTool | Callable[..., Any] |
+Literal["START"] (workflow/_graph.py:40-42), and BaseAgent(BaseNode)
+(agents/base_agent.py:93) — SENTINEL, a BaseAgent exactly like VACCINATOR,
+qualifies the same way. get_invocation_context's shared-session copy
+(context.py:411-422, `'session': self.session` at :416) is what makes a
+child's state_delta write land in this same ctx.session.state, readable
+immediately after run_node returns — not something special-cased for
+VACCINATOR's own invocation.
+
+  - SENTINEL's contract confirmed by reading sentinel/adk_agent.py directly
+    this commit, not assumed from the brief (sentinel/adk_agent.py:72-76,
+    116-149): four required session-state inputs — sentinel.target_id
+    (str), sentinel.payload (dict, ONE payload, not a list — SENTINEL
+    triages one firing per invocation), sentinel.session_id (str, this
+    firing's fire session_id), sentinel.trace_db_path (str). Missing or
+    wrong-typed any of the four -> SENTINEL skips silently
+    (adk_agent.py:121-149) rather than raising; this module does not
+    change that behavior, only feeds it correctly.
+  - trace_db_path is not invented here. SqliteSpanExporter installation is
+    already an entry-point concern, not agent code, per FIRE-AND-CAPTURE
+    above; the db path SENTINEL needs to read those spans back gets the
+    same treatment. Read once from session.state["sentinel.trace_db_path"]
+    before the fleet loop starts (this module does not know or guess a
+    repo-relative path) — scripts/run_marrow.py seeds it at MARROW's own
+    session creation, from the same TRACE_DB_PATH local it already uses for
+    its own TracerProvider install (run_marrow.py:60): one path, one source
+    of truth, not duplicated.
+  - sentinel.verdict is a single non-namespaced key, overwritten on every
+    SENTINEL call — the identical overwrite hazard as vaccinator.payloads
+    above, same fix: read it immediately into a local (target_verdicts)
+    right after each run_node() call, before the next payload's seed
+    overwrites it. Aggregated into marrow.fleet_verdicts on the final
+    summary event, same shape as marrow.fleet_fire_sessions
+    ({target_id: [verdict_dict_or_None, ...]}), positionally parallel to
+    fleet_fire_sessions — both lists grow together, only on a fire that
+    actually succeeded.
+  - A MACROPHAGE placeholder is left at the equivalent point in the loop
+    (still undesigned — see docs/2026-08-12_PHAGE.md's open questions):
+    no MACROPHAGE code this commit, mirroring how SENTINEL's own
+    placeholder sat here before this commit.
 """
 
 from __future__ import annotations
@@ -114,6 +163,14 @@ from agents.order_intake.agent import root_agent as _order_intake_agent
 from agents.quote_bot.agent import root_agent as _quote_bot_agent
 from agents.stock_keeper.agent import root_agent as _stock_keeper_agent
 from agents.supplier_relay.agent import root_agent as _supplier_relay_agent
+from phage.sentinel.adk_agent import (
+    SENTINEL,
+    STATE_PAYLOAD as SENTINEL_STATE_PAYLOAD,
+    STATE_SESSION_ID as SENTINEL_STATE_SESSION_ID,
+    STATE_TARGET_ID as SENTINEL_STATE_TARGET_ID,
+    STATE_TRACE_DB_PATH as SENTINEL_STATE_TRACE_DB_PATH,
+    STATE_VERDICT as SENTINEL_STATE_VERDICT,
+)
 from phage.targets import FLEET
 from phage.vaccinator.adk_agent import (
     STATE_PAYLOADS,
@@ -153,6 +210,14 @@ STATE_FLEET_PAYLOADS = "marrow.fleet_payloads"
 # whoever consumes this next (SqliteSpanExporter.get_all_spans_for_session).
 STATE_FLEET_FIRE_SESSIONS = "marrow.fleet_fire_sessions"
 
+# {target_id: [verdict_dict | None, ...]} — one SENTINEL verdict per fired
+# payload, positionally parallel to STATE_FLEET_FIRE_SESSIONS' per-target
+# session_id list (both grow together, only on a fire that succeeded — see
+# "SENTINEL WIRING" in the module docstring). verdict_dict is
+# adk_agent._serialize_result's shape (sentinel/adk_agent.py:79-90); None
+# means SENTINEL skipped or failed for that one firing (module docstring).
+STATE_FLEET_VERDICTS = "marrow.fleet_verdicts"
+
 
 class MARROW(Node):
     """Fleet orchestrator: seeds each registered target's tool_scope into session
@@ -177,6 +242,17 @@ class MARROW(Node):
     ) -> AsyncGenerator[Any, None]:
         results: dict[str, list[dict[str, Any]]] = {}
         fire_sessions: dict[str, list[str]] = {}
+        verdicts: dict[str, list[dict[str, Any] | None]] = {}
+
+        # Read once, outside the loop — the db path SENTINEL needs to read
+        # spans back from doesn't change per target. Seeded by the entry
+        # point at session-creation time (scripts/run_marrow.py), same
+        # separation-of-concerns as the TracerProvider install itself (see
+        # FIRE-AND-CAPTURE above): this module does not know or guess a
+        # repo-relative db path. None if the caller didn't seed it —
+        # SENTINEL itself then skips gracefully on the missing value
+        # (sentinel/adk_agent.py:121-149), unchanged by this module.
+        trace_db_path = ctx.session.state.get(SENTINEL_STATE_TRACE_DB_PATH)
 
         for target in FLEET:
             # 1. Seed VACCINATOR's inputs into session state via
@@ -220,8 +296,10 @@ class MARROW(Node):
             #    same proven pattern as run_local.py/run_fleet_smoke.py, just
             #    pointed at a target with the payload's injection_text as the
             #    new message). One session per payload, so its trace can be
-            #    pulled back individually by session_id later (SENTINEL,
-            #    next). Sequential, same as the rest of this loop — no
+            #    pulled back individually by session_id — SENTINEL does
+            #    exactly that immediately below, once per firing (see
+            #    "SENTINEL WIRING" in the module docstring). Sequential, same
+            #    as the rest of this loop — no
             #    concurrency. One payload's failure (e.g. a transient
             #    call error) must not abort the rest of the fleet loop, so
             #    it's caught and skipped rather than propagated — the same
@@ -246,6 +324,7 @@ class MARROW(Node):
             #    to just that one firing.
             target_agent = _TARGET_AGENTS.get(target.id)
             session_ids: list[str] = []
+            target_verdicts: list[dict[str, Any] | None] = []
             if target_agent is not None:
                 fire_runner = InMemoryRunner(agent=target_agent, app_name=_FIRE_APP)
                 for payload in results[target.id]:
@@ -273,9 +352,68 @@ class MARROW(Node):
                             f"MARROW: fire failed for {target.id}/"
                             f"{payload['archetype_id']}: {exc}"
                         )
+                        continue
                     finally:
                         otel_context_api.detach(otel_token)
+
+                    # Immediately triage this firing via SENTINEL — same
+                    # ctx.run_node() mechanism as step 2 above (VACCINATOR),
+                    # confirmed generic for any BaseAgent rather than
+                    # VACCINATOR-specific (see "SENTINEL WIRING" in the
+                    # module docstring). Own try/except, separate from the
+                    # fire's above: a triage failure is a different fact
+                    # than a fire failure and must not be reported as one,
+                    # and must not abort the rest of the fleet loop either
+                    # (same per-item isolation as the fire itself). Runs
+                    # after otel_token is detached above — triage is not
+                    # part of the fire's own isolated trace.
+                    try:
+                        yield Event(
+                            invocation_id=ctx.invocation_id,
+                            author=self.name,
+                            content=types.Content(
+                                role="model",
+                                parts=[
+                                    types.Part.from_text(
+                                        text=f"MARROW: triaging {session_id}"
+                                    )
+                                ],
+                            ),
+                            actions=EventActions(
+                                state_delta={
+                                    SENTINEL_STATE_TARGET_ID: target.id,
+                                    SENTINEL_STATE_PAYLOAD: payload,
+                                    SENTINEL_STATE_SESSION_ID: session_id,
+                                    SENTINEL_STATE_TRACE_DB_PATH: trace_db_path,
+                                }
+                            ),
+                        )
+                        await ctx.run_node(
+                            SENTINEL(), run_id=session_id, use_sub_branch=True
+                        )
+                        # Read back NOW, before the next payload's seed
+                        # overwrites sentinel.verdict — a single
+                        # non-namespaced key, same overwrite hazard as
+                        # vaccinator.payloads (module docstring above), same
+                        # fix: immediate synchronous read into a local.
+                        target_verdicts.append(
+                            ctx.session.state.get(SENTINEL_STATE_VERDICT)
+                        )
+                    except Exception as exc:  # noqa: BLE001 -- isolate per payload
+                        print(
+                            f"MARROW: triage failed for {target.id}/"
+                            f"{payload['archetype_id']}: {exc}"
+                        )
+                        target_verdicts.append(None)
+
+                    # MACROPHAGE containment call goes here next, once its
+                    # containment action is designed (still undesigned —
+                    # docs/2026-08-12_PHAGE.md's open questions). Mirrors
+                    # exactly how this SENTINEL call's own placeholder
+                    # existed at this point before this commit. No
+                    # MACROPHAGE code yet.
             fire_sessions[target.id] = session_ids
+            verdicts[target.id] = target_verdicts
 
         # 5. Fleet summary event.
         total = sum(len(ps) for ps in results.values())
@@ -284,6 +422,15 @@ class MARROW(Node):
         )
         total_local = total - total_gemini
         total_fired = sum(len(sids) for sids in fire_sessions.values())
+        total_triaged = sum(1 for vs in verdicts.values() for v in vs if v is not None)
+        verdict_counts: dict[str, int] = {}
+        for vs in verdicts.values():
+            for v in vs:
+                if v is not None:
+                    verdict_counts[v["verdict"]] = verdict_counts.get(v["verdict"], 0) + 1
+        verdict_breakdown = (
+            ", ".join(f"{k}={n}" for k, n in sorted(verdict_counts.items())) or "none"
+        )
         per_target = ", ".join(f"{tid}={len(ps)}" for tid, ps in results.items())
 
         yield Event(
@@ -296,20 +443,22 @@ class MARROW(Node):
                         text=(
                             f"MARROW: {total} payloads across {len(results)} targets "
                             f"({total_gemini} gemini / {total_local} local-fallback), "
-                            f"{total_fired}/{total} fired at real targets "
-                            f"— {per_target}"
+                            f"{total_fired}/{total} fired at real targets, "
+                            f"{total_triaged}/{total_fired} triaged by SENTINEL "
+                            f"({verdict_breakdown}) — {per_target}"
                         )
                     )
                 ],
             ),
             # Structured per-target results, so a caller can verify each
             # target's payloads without text-parsing the summary above (see
-            # STATE_FLEET_PAYLOADS / STATE_FLEET_FIRE_SESSIONS docstrings for
-            # why these keys exist at all).
+            # STATE_FLEET_PAYLOADS / STATE_FLEET_FIRE_SESSIONS /
+            # STATE_FLEET_VERDICTS docstrings for why these keys exist).
             actions=EventActions(
                 state_delta={
                     STATE_FLEET_PAYLOADS: results,
                     STATE_FLEET_FIRE_SESSIONS: fire_sessions,
+                    STATE_FLEET_VERDICTS: verdicts,
                 }
             ),
         )

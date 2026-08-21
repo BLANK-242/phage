@@ -57,6 +57,12 @@ _SCOPE_APP_NAME = "phage-archivist"  # Memory Bank `scope.app_name` — this mod
                                       # own namespace, separate from any other
                                       # Memory Bank consumer.
 
+# Single fleet-wide scope, not per-target: recognition is meant to work
+# across the fleet ("the fleet learned this attack"), not per-organism. The
+# target id still distinguishes encounters — it lives inside the signature
+# fact text (_signature_text below), not in the scope.
+_FLEET_SCOPE: dict[str, str] = {"app_name": _SCOPE_APP_NAME}
+
 
 @dataclass(frozen=True)
 class RecognitionResult:
@@ -68,6 +74,10 @@ class RecognitionResult:
     distance: Optional[float]
     matched_fact: Optional[str]
     matched_memory_name: Optional[str]
+    error: Optional[str] = None  # "{ExceptionClassName}: {message}" on the fail-open
+                                  # path below; None on every other path, including a
+                                  # clean miss — this is specifically "did the client
+                                  # call itself fail", not "was nothing recognized".
 
 
 _MISS = RecognitionResult(
@@ -90,8 +100,8 @@ def _signature_text(
     return f"target={target_id} archetype={archetype_id} tools=[{tools}]\n{injection_text}"
 
 
-def _scope(target_id: str) -> dict[str, str]:
-    return {"app_name": _SCOPE_APP_NAME, "user_id": target_id}
+def _scope() -> dict[str, str]:
+    return dict(_FLEET_SCOPE)  # fresh dict per call, same as before this was fixed
 
 
 def _engine_name() -> str:
@@ -127,7 +137,11 @@ def recognize(
     miss, never raised. A recognition subsystem that raises would kill
     MARROW's fire loop, and a false block (withholding a real attack from
     ever being tested because Memory Bank hiccuped) is worse than a missed
-    recognition — the demo depends on the loop completing.
+    recognition — the demo depends on the loop completing. The exception is
+    not just discarded, though: it is captured into the returned result's
+    `error` field ("{ExceptionClassName}: {message}") so a caller can tell
+    "the client call itself failed" apart from "nothing matched" — every
+    other path (clean miss, no-distance result) leaves `error=None`.
 
     If a returned result has no `distance` field, that is treated as a miss
     rather than assuming a value (a similarity search with no configured
@@ -144,19 +158,24 @@ def recognize(
     try:
         results = resolved_client.agent_engines.memories.retrieve(
             name=_engine_name(),
-            scope=_scope(target_id),
+            scope=_scope(),
             similarity_search_params={"search_query": text, "top_k": top_k},
         )
         nearest = next(iter(results), None)
-    except Exception:
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
         logger.warning(
-            "ARCHIVIST.recognize: Memory Bank call failed for target=%r archetype=%r"
+            "ARCHIVIST.recognize: Memory Bank call failed for target=%r archetype=%r: %s"
             " — failing open (recognized=False)",
             target_id,
             archetype_id,
+            error,
             exc_info=True,
         )
-        return _MISS
+        return RecognitionResult(
+            recognized=False, distance=None, matched_fact=None, matched_memory_name=None,
+            error=error,
+        )
 
     if nearest is None:
         return _MISS
@@ -187,9 +206,10 @@ _LANDED_VERDICT = "landed"  # matches Verdict.LANDED.value (sentinel/triage.py) 
                             # "verdict": r.verdict.value, and it travels through
                             # JSON-friendly session state from there).
 
-_DEDUP_PAGE_SIZE = 100  # generous relative to this codebase's realistic per-target
-                        # encounter count (8 archetypes max today); a single page
-                        # comfortably covers it without needing pagination logic.
+_DEDUP_PAGE_SIZE = 100  # generous relative to this codebase's realistic FLEET-WIDE
+                        # encounter count (4 targets x 8 archetypes max today = 32,
+                        # scope is fleet-wide as of the scope change below); a single
+                        # page comfortably covers it without needing pagination logic.
 
 
 def record(
@@ -209,10 +229,12 @@ def record(
     "MARROW holds no domain logic."
 
     Idempotent: checked via an exact-text match against existing memories in
-    this target's scope before writing (a `simple_retrieval_params` listing,
+    the fleet-wide scope before writing (a `simple_retrieval_params` listing,
     not similarity search — this needs an EXACT match, not a nearest
-    neighbor). An identical signature for the same target/archetype/tool
-    combination returns the existing memory's name rather than creating a
+    neighbor). Exact match on the full signature text — which embeds
+    target_id — is still specific to one target/archetype/tool combination
+    even though the scope itself is no longer per-target. An identical
+    signature returns the existing memory's name rather than creating a
     duplicate.
 
     Does not fail open — unlike recognize(), a Memory Bank failure here is a
@@ -232,7 +254,7 @@ def record(
     )
     resolved_client = client if client is not None else _client()
     name = _engine_name()
-    scope = _scope(target_id)
+    scope = _scope()
 
     existing = resolved_client.agent_engines.memories.retrieve(
         name=name,

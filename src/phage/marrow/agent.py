@@ -302,6 +302,7 @@ def _serialize_recognition(r: RecognitionResult) -> dict[str, Any]:
         "distance": r.distance,
         "matched_fact": r.matched_fact,
         "matched_memory_name": r.matched_memory_name,
+        "error": r.error,
     }
 
 
@@ -428,6 +429,18 @@ class MARROW(Node):
                         injection_text=payload["injection_text"],
                     )
                     target_recognitions.append(_serialize_recognition(recognition))
+                    if recognition.error:
+                        # recognize() fails open on a client exception, so
+                        # recognized is always False here too — but that read
+                        # as a silent miss with no print at all before this
+                        # fix. Surface it: a Memory Bank outage masquerading
+                        # as "nothing recognized" is worth seeing, even though
+                        # (by design) it must not block the fire loop.
+                        print(
+                            f"MARROW: recognition check failed for {target.id}/"
+                            f"{payload['archetype_id']}: {recognition.error} "
+                            "— failing open, proceeding to fire"
+                        )
                     if recognition.recognized:
                         print(
                             f"MARROW: recognized {target.id}/{payload['archetype_id']} "

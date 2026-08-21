@@ -129,6 +129,7 @@ def test_recognize_miss_at_exact_threshold_boundary():
     result = recognize(client=fake, **_KW)
     assert result.recognized is False
     assert result.distance == RECOGNITION_DISTANCE_THRESHOLD  # exact-at-threshold still reported
+    assert result.error is None  # a real miss, not a client failure
 
 
 # --------------------------------------------------------------------------- #
@@ -144,8 +145,11 @@ def test_recognize_fails_open_on_client_exception():
 
     result = recognize(client=_RaisingClient(), **_KW)
     assert result == RecognitionResult(
-        recognized=False, distance=None, matched_fact=None, matched_memory_name=None
+        recognized=False, distance=None, matched_fact=None, matched_memory_name=None,
+        error="RuntimeError: Memory Bank is down",
     )
+    assert result.error is not None
+    assert result.error == "RuntimeError: Memory Bank is down"
 
 
 # --------------------------------------------------------------------------- #

@@ -170,6 +170,44 @@ a triage or fire failure, and does not abort the rest of the fleet loop.
     connection to _TARGET_AGENTS at all, and a live object can't cleanly
     round-trip through this codebase's JSON-friendly session-state
     convention).
+
+ARCHIVIST WIRING (this commit): two separate insertion points, per
+docs/PHAGE_cc_prompt_archivist_build.md Task 3, contingent on that brief's
+Gate A — confirmed against PHAGE_build_prompt.md:35 directly, not assumed:
+"On second exposure, ARCHIVIST recognition fires before the payload lands."
+
+  - Pre-fire gate: recognize() is called at the top of the per-payload loop,
+    before session_id/otel/fire_runner — i.e. before dispatch, matching
+    Gate A's confirmed ordering exactly. Unlike VACCINATOR/SENTINEL/
+    MACROPHAGE, ARCHIVIST is NOT a BaseAgent run via ctx.run_node: its build
+    brief describes plain function calls ("MARROW calls recognize()"), and
+    its own spec is entirely ADK-agnostic (no session-state contract, no
+    Event/EventActions) — a run_node round trip would add exactly the kind
+    of overhead the spec's "recognition fires in milliseconds"
+    (PHAGE_build_prompt.md:193) argues against.
+  - recognize() itself fails open (its own docstring) — a Memory Bank
+    exception becomes recognized=False, never a raise — so this call cannot
+    itself introduce a new per-payload failure mode; no additional
+    try/except wraps it here, matching that guarantee rather than
+    duplicating it.
+  - A recognized=True result short-circuits via a plain `continue`, before
+    session_id is even constructed — no fire, no SENTINEL run_node, no
+    MACROPHAGE run_node for that payload, exactly as the brief specifies.
+    target_recognitions still gets an entry either way (append happens
+    before the branch), so — unlike session_ids/target_verdicts, which only
+    grow past the firing step — this list is positionally parallel to
+    results[target.id] for every payload attempted, recognized or not.
+  - Signature write: record() is called after the MACROPHAGE try/except,
+    at the tail of the per-payload loop — "where the cycle already ends"
+    (build brief Task 3) and the master spec's own explicit order
+    (PHAGE_build_prompt.md:35: "...MACROPHAGE contains -> ARCHIVIST records
+    the signature"). record() no-ops internally on a non-landed verdict, so
+    MARROW calls it unconditionally, reusing verdict_dict captured at the
+    SENTINEL read above (fresh by construction: the only path that reaches
+    this call is the one where that read just succeeded this iteration).
+    Its own try/except does NOT fail open — a write failure is a distinct
+    fact from a triage/containment failure, same isolation discipline as
+    those two, not the pre-fire-gate's different (fail-open) discipline.
 """
 
 from __future__ import annotations
@@ -189,6 +227,7 @@ from agents.order_intake.agent import root_agent as _order_intake_agent
 from agents.quote_bot.agent import root_agent as _quote_bot_agent
 from agents.stock_keeper.agent import root_agent as _stock_keeper_agent
 from agents.supplier_relay.agent import root_agent as _supplier_relay_agent
+from phage.archivist.memory import RecognitionResult, record, recognize
 from phage.macrophage.adk_agent import MACROPHAGE
 from phage.sentinel.adk_agent import (
     SENTINEL,
@@ -245,6 +284,26 @@ STATE_FLEET_FIRE_SESSIONS = "marrow.fleet_fire_sessions"
 # means SENTINEL skipped or failed for that one firing (module docstring).
 STATE_FLEET_VERDICTS = "marrow.fleet_verdicts"
 
+# {target_id: [recognition_dict, ...]} — one ARCHIVIST recognition result per
+# payload ATTEMPTED (unlike the three lists above, this one grows for every
+# payload in results[target.id], including short-circuited ones — see
+# "ARCHIVIST WIRING" in the module docstring). recognition_dict is
+# _serialize_recognition's shape, below. recognized=True entries are the ones
+# that short-circuited (no fire, no SENTINEL, no MACROPHAGE for that payload).
+STATE_FLEET_RECOGNITIONS = "marrow.fleet_recognitions"
+
+
+def _serialize_recognition(r: RecognitionResult) -> dict[str, Any]:
+    """RecognitionResult -> plain dict, so session state stays JSON-friendly
+    (mirrors vaccinator/adk_agent.py's _serialize_payload / sentinel/
+    adk_agent.py's _serialize_result)."""
+    return {
+        "recognized": r.recognized,
+        "distance": r.distance,
+        "matched_fact": r.matched_fact,
+        "matched_memory_name": r.matched_memory_name,
+    }
+
 
 class MARROW(Node):
     """Fleet orchestrator: seeds each registered target's tool_scope into session
@@ -270,6 +329,7 @@ class MARROW(Node):
         results: dict[str, list[dict[str, Any]]] = {}
         fire_sessions: dict[str, list[str]] = {}
         verdicts: dict[str, list[dict[str, Any] | None]] = {}
+        recognitions: dict[str, list[dict[str, Any]]] = {}
 
         # Read once, outside the loop — the db path SENTINEL needs to read
         # spans back from doesn't change per target. Seeded by the entry
@@ -352,9 +412,30 @@ class MARROW(Node):
             target_agent = _TARGET_AGENTS.get(target.id)
             session_ids: list[str] = []
             target_verdicts: list[dict[str, Any] | None] = []
+            target_recognitions: list[dict[str, Any]] = []
             if target_agent is not None:
                 fire_runner = InMemoryRunner(agent=target_agent, app_name=_FIRE_APP)
                 for payload in results[target.id]:
+                    # ARCHIVIST pre-fire gate (Gate A, PHAGE_build_prompt.md:35:
+                    # "On second exposure, ARCHIVIST recognition fires before
+                    # the payload lands") — called unconditionally, before any
+                    # dispatch. recognize() itself fails open, so this can
+                    # never raise and never blocks the loop on its own.
+                    recognition = recognize(
+                        target_id=target.id,
+                        archetype_id=payload["archetype_id"],
+                        target_tools=payload["target_tools"],
+                        injection_text=payload["injection_text"],
+                    )
+                    target_recognitions.append(_serialize_recognition(recognition))
+                    if recognition.recognized:
+                        print(
+                            f"MARROW: recognized {target.id}/{payload['archetype_id']} "
+                            f"at distance={recognition.distance} — short-circuiting "
+                            "(no fire, no SENTINEL, no MACROPHAGE)"
+                        )
+                        continue
+
                     session_id = f"fire-{target.id}-{payload['archetype_id']}"
                     otel_token = otel_context_api.attach(otel_context_api.Context())
                     try:
@@ -423,9 +504,12 @@ class MARROW(Node):
                         # non-namespaced key, same overwrite hazard as
                         # vaccinator.payloads (module docstring above), same
                         # fix: immediate synchronous read into a local.
-                        target_verdicts.append(
-                            ctx.session.state.get(SENTINEL_STATE_VERDICT)
-                        )
+                        # Captured into verdict_dict (not just appended) so
+                        # the ARCHIVIST record() call below the MACROPHAGE
+                        # block can reuse this exact value — reached only via
+                        # this same try succeeding, so it is never stale.
+                        verdict_dict = ctx.session.state.get(SENTINEL_STATE_VERDICT)
+                        target_verdicts.append(verdict_dict)
                     except Exception as exc:  # noqa: BLE001 -- isolate per payload
                         print(
                             f"MARROW: triage failed for {target.id}/"
@@ -457,8 +541,38 @@ class MARROW(Node):
                             f"MARROW: containment failed for {target.id}/"
                             f"{payload['archetype_id']}: {exc}"
                         )
+
+                    # ARCHIVIST signature write — "where the cycle already
+                    # ends" (build brief Task 3), after MACROPHAGE, matching
+                    # the master spec's own cycle order (PHAGE_build_prompt.md
+                    # :35: "...MACROPHAGE contains -> ARCHIVIST records the
+                    # signature"). record() itself no-ops on a non-landed
+                    # verdict, so this is called unconditionally — "MARROW
+                    # holds no domain logic." Own try/except: does NOT fail
+                    # open the way recognize() does — a write failure here is
+                    # a distinct fact from a triage/containment failure, same
+                    # per-payload isolation discipline as those two above.
+                    try:
+                        verdict_str = (
+                            verdict_dict.get("verdict")
+                            if isinstance(verdict_dict, dict)
+                            else None
+                        )
+                        record(
+                            target_id=target.id,
+                            archetype_id=payload["archetype_id"],
+                            target_tools=payload["target_tools"],
+                            injection_text=payload["injection_text"],
+                            verdict=verdict_str or "",
+                        )
+                    except Exception as exc:  # noqa: BLE001 -- isolate per payload
+                        print(
+                            f"MARROW: signature write failed for {target.id}/"
+                            f"{payload['archetype_id']}: {exc}"
+                        )
             fire_sessions[target.id] = session_ids
             verdicts[target.id] = target_verdicts
+            recognitions[target.id] = target_recognitions
 
         # 5. Fleet summary event.
         total = sum(len(ps) for ps in results.values())
@@ -466,6 +580,9 @@ class MARROW(Node):
             1 for ps in results.values() for p in ps if p.get("source") == "gemini"
         )
         total_local = total - total_gemini
+        total_recognized = sum(
+            1 for rs in recognitions.values() for r in rs if r.get("recognized")
+        )
         total_fired = sum(len(sids) for sids in fire_sessions.values())
         total_triaged = sum(1 for vs in verdicts.values() for v in vs if v is not None)
         verdict_counts: dict[str, int] = {}
@@ -488,6 +605,8 @@ class MARROW(Node):
                         text=(
                             f"MARROW: {total} payloads across {len(results)} targets "
                             f"({total_gemini} gemini / {total_local} local-fallback), "
+                            f"{total_recognized}/{total} recognized by ARCHIVIST "
+                            f"(short-circuited before dispatch), "
                             f"{total_fired}/{total} fired at real targets, "
                             f"{total_triaged}/{total_fired} triaged by SENTINEL "
                             f"({verdict_breakdown}) — {per_target}"
@@ -498,12 +617,14 @@ class MARROW(Node):
             # Structured per-target results, so a caller can verify each
             # target's payloads without text-parsing the summary above (see
             # STATE_FLEET_PAYLOADS / STATE_FLEET_FIRE_SESSIONS /
-            # STATE_FLEET_VERDICTS docstrings for why these keys exist).
+            # STATE_FLEET_VERDICTS / STATE_FLEET_RECOGNITIONS docstrings for
+            # why these keys exist).
             actions=EventActions(
                 state_delta={
                     STATE_FLEET_PAYLOADS: results,
                     STATE_FLEET_FIRE_SESSIONS: fire_sessions,
                     STATE_FLEET_VERDICTS: verdicts,
+                    STATE_FLEET_RECOGNITIONS: recognitions,
                 }
             ),
         )

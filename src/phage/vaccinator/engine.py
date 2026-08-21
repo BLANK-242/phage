@@ -30,6 +30,31 @@ _REFUSAL_MARKERS = (
     "sorry, i cannot", "not able to", "i won't", "i will not",
 )
 
+_TAILOR_MAX_ATTEMPTS = 3  # exact 3 total attempts — no backoff, no jitter, no caching
+
+
+class MutationRefused(RuntimeError):
+    """Raised by ``_tailor_one`` when every attempt is exhausted without a real
+    paraphrase.
+
+    Must propagate, not be swallowed into a fallback. ``paraphrase`` is
+    ``Optional[str]``; a silent ``None`` here is indistinguishable downstream
+    from a successful no-op mutation, and a recorded demo take where nothing
+    actually mutated would look identical to a real one. That silent path is
+    the defect this exception exists to close — do not catch it and treat it
+    like a plain refusal (which correctly falls to local-fallback); this is a
+    distinct, louder failure mode by design.
+    """
+
+    def __init__(self, *, target: Optional[str], archetype_id: str, attempts: int):
+        self.target = target
+        self.archetype_id = archetype_id
+        self.attempts = attempts
+        super().__init__(
+            f"MutationRefused: target={target!r} archetype={archetype_id!r} "
+            f"— no usable paraphrase after {attempts} attempt(s)"
+        )
+
 
 @dataclass(frozen=True)
 class Payload:
@@ -118,13 +143,24 @@ _TAILOR_SYSTEM = (
 
 
 def _tailor_one(
-    client, *, model: str, tool_scope: list[str], arch_id: str, text: str
-) -> Optional[tuple[str, Optional[str]]]:
+    client, *, model: str, tool_scope: list[str], arch_id: str, text: str,
+    target: Optional[str] = None,
+) -> tuple[str, str]:
     """Ask Gemini to adapt ONE rendered template to the target's tool signatures.
 
     One archetype per call, so a refusal costs a single payload rather than the
-    whole batch. Returns (injection_text, paraphrase) on success; None on refusal,
-    parse-failure, or empty output — the caller then keeps the local render.
+    whole batch. Retries the IDENTICAL request (same prompt, same model — no
+    rewording, no rerouting; CLAUDE.md's no-classifier-dodging red line is about
+    *changing* the ask to force compliance, not about asking again) up to
+    _TAILOR_MAX_ATTEMPTS total times whenever an attempt does not yield a
+    non-empty paraphrase alongside a non-empty injection_text. temperature=0.7
+    below means identical retries are not pointless — the same prompt can land
+    differently across attempts.
+
+    Returns (injection_text, paraphrase) — both guaranteed non-empty — on
+    success. Raises MutationRefused once every attempt is exhausted, rather
+    than returning None: see MutationRefused for why this must not be a silent
+    fallback signal the way a plain refusal is.
     """
     user = (
         f"Target tool signatures: {tool_scope}\n\n"
@@ -141,22 +177,30 @@ def _tailor_one(
     cfg = types.GenerateContentConfig(
         system_instruction=_TAILOR_SYSTEM, temperature=0.7, max_output_tokens=1024
     )
-    resp = generate_with_backoff(client, model=model, contents=user, config=cfg)
-    try:
-        out_text = resp.text or ""
-    except Exception:
-        return None
-    if any(out_text.strip().lower().startswith(m) for m in _REFUSAL_MARKERS):
-        return None
-    data = extract_json(out_text)
-    if not isinstance(data, dict):
-        return None
-    inj = data.get("injection_text")
-    if not (isinstance(inj, str) and inj.strip()):
-        return None
-    para = data.get("paraphrase")
-    para = para.strip() if isinstance(para, str) and para.strip() else None
-    return (inj.strip(), para)
+
+    for _attempt in range(1, _TAILOR_MAX_ATTEMPTS + 1):
+        resp = generate_with_backoff(client, model=model, contents=user, config=cfg)
+        try:
+            out_text = resp.text or ""
+        except Exception:
+            out_text = ""
+
+        inj: Optional[str] = None
+        para: Optional[str] = None
+        if not any(out_text.strip().lower().startswith(m) for m in _REFUSAL_MARKERS):
+            data = extract_json(out_text)
+            if isinstance(data, dict):
+                raw_inj = data.get("injection_text")
+                if isinstance(raw_inj, str) and raw_inj.strip():
+                    inj = raw_inj.strip()
+                raw_para = data.get("paraphrase")
+                if isinstance(raw_para, str) and raw_para.strip():
+                    para = raw_para.strip()
+
+        if inj and para:
+            return (inj, para)
+
+    raise MutationRefused(target=target, archetype_id=arch_id, attempts=_TAILOR_MAX_ATTEMPTS)
 
 
 def _json_str(s: str) -> str:
@@ -174,12 +218,25 @@ def generate_payloads(
     client=None,
     use_gemini: bool = True,
     model: Optional[str] = None,
+    target_id: Optional[str] = None,
 ) -> list[Payload]:
     """Generate tailored injection payloads for a target's declared tool scope.
 
     Deterministic local instantiation always produces a payload per applicable
     archetype; Gemini (if enabled/available) polishes wording to the exact tool
     signatures and adds a paraphrase. Provenance is recorded per payload.
+
+    target_id is optional and purely diagnostic: it is threaded into
+    MutationRefused (via _tailor_one) so an exhausted-refusal exception
+    identifies which target it happened against. It does not affect
+    selection, rendering, or provenance.
+
+    MutationRefused propagates out of this function uncaught (see the
+    MutationRefused docstring and the except clause in _one below) — a
+    caller that wants the old "one bad archetype doesn't sink the others"
+    behavior for a genuine refusal still gets it; a caller that wants to know
+    when a mutation never actually happened must not have that silently
+    absorbed into local-fallback.
     """
     tools = classify_scope(tool_scope)
     selected = select_archetypes(tool_scope)
@@ -198,7 +255,7 @@ def generate_payloads(
             client = genai.Client(**config.gemini_client_kwargs())
         resolved_model = model or config.GEMINI_MODEL  # same model for ALL archetypes; no refusal-defeating routing
 
-        def _one(a: Archetype) -> tuple[str, Optional[tuple[str, Optional[str]]]]:
+        def _one(a: Archetype) -> tuple[str, Optional[tuple[str, str]]]:
             try:
                 return a.id, _tailor_one(
                     client,
@@ -206,7 +263,10 @@ def generate_payloads(
                     tool_scope=tool_scope,
                     arch_id=a.id,
                     text=local[a.id],
+                    target=target_id,
                 )
+            except MutationRefused:
+                raise  # must propagate — see MutationRefused; not a fallback case
             except Exception:
                 return a.id, None  # one archetype failing must not affect any other
 

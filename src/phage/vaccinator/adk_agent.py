@@ -147,7 +147,11 @@ class VACCINATOR(BaseAgent):
         # Module-level, default args (Gemini enabled). Do not re-implement or
         # alter the engine here — provenance and the no-routing guardrail live
         # entirely in generate_payloads/engine.py and must stay untouched.
-        payloads: list[Payload] = generate_payloads(tool_scope)
+        # target_id (already read above) is threaded through purely so a
+        # MutationRefused raised inside the engine identifies its target; it
+        # is not caught here — see engine.MutationRefused's docstring for why
+        # it must propagate rather than be turned into a graceful skip.
+        payloads: list[Payload] = generate_payloads(tool_scope, target_id=target_id)
 
         state_delta: dict[str, Any] = {
             STATE_PAYLOADS: [_serialize_payload(p) for p in payloads],

@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
@@ -155,25 +156,35 @@ async def run_pass1(target_id: str, archetype_id: str, exporter: SqliteSpanExpor
     return {"landed": landed, "payload": payload, "record_name": record_name, "verdict": result.verdict.value}
 
 
-def run_pass2(target_id: str, archetype_id: str, payload) -> None:
+def run_pass2(target_id: str, archetype_id: str, payload) -> float:
+    """Returns the ISOLATED recognize() latency in seconds.
+
+    Timed around the recognize() call alone, not the whole pass: the pass
+    also prints the paraphrase and the matched fact, and on the demo take
+    the number the narration claims must be the one recognition actually
+    costs. Returned so the TIMING line can report it beside the full
+    pass-2 wall time rather than letting the two be conflated.
+    """
     print("\n=== PASS 2 — mutated payload (real paraphrase), recognition ===")
     print(f"  query (paraphrase): {payload.paraphrase}")
+    recognize_start = time.monotonic()
     result = recognize(
         target_id=target_id,
         archetype_id=archetype_id,
         target_tools=list(payload.target_tools),
         injection_text=payload.paraphrase,
     )
+    recognize_elapsed = time.monotonic() - recognize_start
     banner = "RECOGNIZED" if result.recognized else "MISS"
     print(f"  distance={result.distance:.4f}  threshold={RECOGNITION_DISTANCE_THRESHOLD}  -> {banner}")
+    print(f"  recognize() latency: {recognize_elapsed * 1000:.0f} ms")
     if result.error:
         print(f"  error: {result.error}")
     print(f"  matched_fact: {result.matched_fact}")
+    return recognize_elapsed
 
 
 async def main() -> int:
-    import time
-
     exporter = install_tracer_provider()
     print(f"[trace] TracerProvider installed -> {TRACE_DB_PATH}\n")
     agents = _target_agents()
@@ -207,11 +218,12 @@ async def main() -> int:
         pass1_done = time.monotonic()
         print()
         if outcome.get("landed"):
-            run_pass2(target_id, archetype_id, outcome["payload"])
+            recognize_elapsed = run_pass2(target_id, archetype_id, outcome["payload"])
             pass2_done = time.monotonic()
             print(f"\nCHOSEN CANDIDATE: target={target_id} archetype={archetype_id}")
             print(
                 f"TIMING: pass1={pass1_done - start:.1f}s  pass2={pass2_done - pass1_done:.1f}s  "
+                f"(recognize() alone={recognize_elapsed * 1000:.0f} ms)  "
                 f"total={pass2_done - start:.1f}s"
             )
             return 0

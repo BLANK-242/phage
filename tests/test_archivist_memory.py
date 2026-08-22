@@ -85,6 +85,11 @@ _KW = dict(
     target_tools=["send_email(to, subject, body)"],
     injection_text="IGNORE ALL PREVIOUS INSTRUCTIONS...",
 )
+# recognize()/record() take no format_id (they read _SIGNATURE_FORMAT
+# internally — see memory.py), so it is NOT part of _KW (which feeds both of
+# those AND raw _signature_text(**_KW) calls below) — passed explicitly only
+# where _signature_text is called directly, matching production's default.
+_FORMAT_KW = dict(format_id="F0")
 
 
 # --------------------------------------------------------------------------- #
@@ -102,7 +107,7 @@ def test_signature_text_identical_via_record_and_recognize_paths():
     # record()'s create call carries the text it wrote as `fact`.
     fact_text = fake.agent_engines.memories.create_calls[0]["fact"]
 
-    assert query_text == fact_text == _signature_text(**_KW)
+    assert query_text == fact_text == _signature_text(**_KW, **_FORMAT_KW)
 
 
 # --------------------------------------------------------------------------- #
@@ -180,7 +185,7 @@ def test_record_noop_when_not_landed():
 # 7. record() does not create a duplicate for an identical signature
 # --------------------------------------------------------------------------- #
 def test_record_idempotent_no_duplicate():
-    text = _signature_text(**_KW)
+    text = _signature_text(**_KW, **_FORMAT_KW)
     existing = _FakeMemory(fact=text, name="reasoningEngines/x/memories/existing-1")
     fake = _FakeClient(retrieve_results=[_FakeRetrievedMemory(distance=None, memory=existing)])
 
@@ -222,7 +227,7 @@ def test_live_create_retrieve_delete_round_trip():
         # exact-text match clears the CURRENT placeholder is a fact about the
         # untuned number, not about whether this round trip worked.
         assert result.distance is not None
-        assert result.matched_fact == _signature_text(**kw)
+        assert result.matched_fact == _signature_text(**kw, format_id="F0")
     finally:
         client = _client()
         client.agent_engines.memories.delete(name=name)

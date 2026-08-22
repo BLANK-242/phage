@@ -99,12 +99,52 @@ _MISS = RecognitionResult(
 # asymmetry between the two construction paths poisons every distance the
 # demo puts on screen. Exactly one function; both record() and recognize()
 # call it. Do not build either string inline.
+#
+# Parameterised over format (docs/PHAGE_cc_prompt_signature_format_ab.md
+# Task 1) after F0's shared target=/archetype=/tools= boilerplate was found
+# to dominate the embedding (FPR 0.72 at TPR 1.00 — see
+# RECOGNITION_DISTANCE_THRESHOLD's history). format_id is required, not
+# defaulted here, so no call site can silently drift onto an implicit
+# format — record()/recognize() pass _SIGNATURE_FORMAT explicitly below;
+# scripts A/B-testing formats pass an explicit F0-F3 literal instead.
 # --------------------------------------------------------------------------- #
+_SIGNATURE_FORMAT = "F0"  # Production default. Task-3-changeable single source of
+                          # truth: record()/recognize() read this constant live (by
+                          # name, each call) rather than relying on a baked-in
+                          # function-default value, so changing this line alone
+                          # changes production behaviour with no other edit needed.
+
+_SIGNATURE_FORMATS = ("F0", "F1", "F2", "F3")  # the only valid format_id values
+
+
 def _signature_text(
-    *, target_id: str, archetype_id: str, target_tools: Sequence[str], injection_text: str
+    *,
+    target_id: str,
+    archetype_id: str,
+    target_tools: Sequence[str],
+    injection_text: str,
+    format_id: str,
 ) -> str:
+    """Builds the exact string Memory Bank embeds. format_id selects how much
+    of the target/archetype/tools context is embedded alongside the
+    injection text (see the format table in
+    docs/PHAGE_cc_prompt_signature_format_ab.md):
+
+        F0 - target= + archetype= + tools=[...] prefix, then injection text
+        F1 - injection text only, no prefix of any kind
+        F2 - archetype= prefix only, then injection text
+        F3 - tools=[...] prefix only, then injection text
+    """
     tools = ", ".join(target_tools)
-    return f"target={target_id} archetype={archetype_id} tools=[{tools}]\n{injection_text}"
+    if format_id == "F0":
+        return f"target={target_id} archetype={archetype_id} tools=[{tools}]\n{injection_text}"
+    if format_id == "F1":
+        return injection_text
+    if format_id == "F2":
+        return f"archetype={archetype_id}\n{injection_text}"
+    if format_id == "F3":
+        return f"tools=[{tools}]\n{injection_text}"
+    raise ValueError(f"unknown signature format {format_id!r}; must be one of {_SIGNATURE_FORMATS}")
 
 
 def _scope() -> dict[str, str]:
@@ -159,6 +199,7 @@ def recognize(
         archetype_id=archetype_id,
         target_tools=target_tools,
         injection_text=injection_text,
+        format_id=_SIGNATURE_FORMAT,
     )
     resolved_client = client if client is not None else _client()
 
@@ -258,6 +299,7 @@ def record(
         archetype_id=archetype_id,
         target_tools=target_tools,
         injection_text=injection_text,
+        format_id=_SIGNATURE_FORMAT,
     )
     resolved_client = client if client is not None else _client()
     name = _engine_name()

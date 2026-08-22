@@ -79,6 +79,9 @@ def _write_anchors(client, records: list[dict]) -> dict[tuple, str]:
             archetype_id=r["archetype"],
             target_tools=_tool_scope_for(r["target"]),
             injection_text=r["anchor_text"],
+            format_id="F0",  # this script measures the original format specifically;
+                             # see scripts/ab_test_signature_formats.py for the sweep
+                             # across formats (docs/PHAGE_cc_prompt_signature_format_ab.md)
         )
         op = client.agent_engines.memories.create(
             name=name,
@@ -97,6 +100,7 @@ def _query_distance(client, record: dict) -> Optional[float]:
         archetype_id=record["archetype"],
         target_tools=_tool_scope_for(query_target),
         injection_text=record["query_text"],
+        format_id="F0",
     )
     results = client.agent_engines.memories.retrieve(
         name=_engine_name(),

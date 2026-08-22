@@ -108,8 +108,19 @@ def probe_models() -> bool:
     return gemini_ok and gemma_ok
 
 
-def main() -> int:
-    client = _client()
+def purge_production_scope(client) -> int:
+    """Purge the production scope and return the count still remaining after.
+
+    Extracted from main() unchanged — same deletions, same order, same output
+    — so the remaining count is a value main() can act on, and so the blocking
+    path can be exercised by stubbing this function instead of writing a real
+    memory to {"app_name": "phage-archivist"}.
+
+    A non-zero return is the worst pre-take state there is: ARCHIVIST's
+    pre-fire gate would recognise the demo payload on its FIRST exposure, so
+    scene 1 never lands, nothing is contained, and the run still looks
+    successful on camera.
+    """
     prod_scope = _scope()
     print(f"=== PRODUCTION scope {prod_scope} ===")
     items = _list_scope(client, prod_scope)
@@ -127,9 +138,16 @@ def main() -> int:
                 client.agent_engines.memories.delete(name=m.name)
         remaining = _list_scope(client, prod_scope)
         print(f"post-delete count: {len(remaining)} (expect 0)")
-    else:
-        print("production scope already empty — no delete needed")
+        return len(remaining)
 
+    print("production scope already empty — no delete needed")
+    return 0
+
+
+def check_eval_scopes(client) -> bool:
+    """Report every eval scope's count. INFORMATIONAL ONLY — deliberately not
+    blocking: eval scopes are never read during a take, so making them gate
+    recording would invent false blockers on recording night."""
     print("\n=== eval scopes ===")
     all_clean = True
     for scope in _EVAL_SCOPES:
@@ -140,17 +158,41 @@ def main() -> int:
         print(f"  {scope}: {len(scope_items)} results [{status}]")
 
     print(f"\nAll eval scopes clean: {all_clean}")
+    return all_clean
 
-    # Model probes run LAST, after the purge and its verification, so nothing
-    # above can be skipped or short-circuited by a probe outcome.
-    models_ok = probe_models()
-    if not models_ok:
-        print(
-            "\nMODEL PROBE FAILED — DO NOT PROCEED WITH THE TAKE. "
-            "At least one model did not answer; recording now would burn a "
-            "take on a 404 or a quota wall."
+
+def main() -> int:
+    """Run EVERY check, then decide. No early return and no fail-fast: a single
+    23:00 run has to surface everything that is wrong at once, not the first
+    thing that is wrong."""
+    client = _client()
+    blocking: list[str] = []
+
+    prod_remaining = purge_production_scope(client)
+    if prod_remaining:
+        blocking.append(
+            f"production scope still holds {prod_remaining} memories after purge "
+            "— ARCHIVIST would recognise the demo payload on first exposure"
         )
+
+    # Informational only; deliberately does not feed `blocking`.
+    check_eval_scopes(client)
+
+    # Model probes run after the scope work, so nothing above can be skipped
+    # or short-circuited by a probe outcome.
+    if not probe_models():
+        blocking.append(
+            "at least one model did not answer — recording now would burn a "
+            "take on a 404 or a quota wall"
+        )
+
+    if blocking:
+        print("\n=== BLOCKING FAILURES — DO NOT PROCEED WITH THE TAKE ===")
+        for failure in blocking:
+            print(f"  - {failure}")
         return 1
+
+    print("\nAll blocking checks passed — clear to record.")
     return 0
 
 

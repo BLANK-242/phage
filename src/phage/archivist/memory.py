@@ -45,9 +45,13 @@ logger = logging.getLogger(__name__)
 # Threshold — one constant, one place (build brief 3.2). Do not inline this
 # value anywhere else in the codebase.
 # --------------------------------------------------------------------------- #
-RECOGNITION_DISTANCE_THRESHOLD = 0.35  # UNTUNED placeholder — tuned in the next brief
-                                       # against the labeled pair set. Single source of
-                                       # truth: do not inline this value anywhere else.
+RECOGNITION_DISTANCE_THRESHOLD = 0.65  # UNTUNED stopgap — tuned in Task 3 of
+                                       # docs/PHAGE_cc_prompt_archivist_dataset.md against
+                                       # the labeled pair set. Sits 0.12 above the observed
+                                       # paraphrase distance (0.529) and 0.22 below the
+                                       # observed unrelated distance (0.875), so ARCHIVIST
+                                       # behaves sanely if anything runs before that lands.
+                                       # Single source of truth: do not inline elsewhere.
 
 # Comparison is STRICTLY `distance < RECOGNITION_DISTANCE_THRESHOLD` — a
 # result exactly at the threshold is a MISS. Do not invert this to `>`; the

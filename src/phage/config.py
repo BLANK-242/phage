@@ -11,9 +11,14 @@ Region policy (decided in Phase 1; evidence lives in the probe scripts):
 
     So PHAGE splits location by concern:
 
-        MODEL_LOCATION = "global"       -> all Gemini / embedding *inference*
+        MODEL_LOCATION = "global"       -> all Gemini / Gemma *inference*
         INFRA_LOCATION = "us-central1"  -> Cloud Run, Firestore, Agent Engine,
                                            Memory Bank, Model Armor, Registry
+
+    No embedding location appears in that split: PHAGE never calls an embedding
+    model. Memory Bank embeds server-side from the signature text, and its API
+    has no caller-supplied-vector path, so there is no embedding inference for
+    this module to route.
 
     The spec pins us-central1 for widest feature coverage and server-side
     timing; that governs where services and data live. Model inference is a
@@ -34,13 +39,16 @@ PROJECT_NUMBER = os.environ.get("PHAGE_PROJECT_NUMBER", "680106551305")
 INFRA_LOCATION = os.environ.get("PHAGE_INFRA_LOCATION", "us-central1")
 MODEL_LOCATION = os.environ.get("PHAGE_MODEL_LOCATION", "global")
 
-# --- Models (all Google; the extra three earn the multi-model bonus) ----------
+# --- Models (all Google) ------------------------------------------------------
 # Gemini 3.5 Flash: VACCINATOR payload authoring, SENTINEL escalation tier,
 # MARROW routing. Flash (not Pro) for sub-second demo responses.
 GEMINI_MODEL = os.environ.get("PHAGE_GEMINI_MODEL", "gemini-3.5-flash")
 
-# text-embedding-005: ARCHIVIST semantic recognition (cosine similarity). Regional.
-EMBEDDING_MODEL = os.environ.get("PHAGE_EMBEDDING_MODEL", "text-embedding-005")
+# No embedding model is configured here, deliberately. Memory Bank embeds
+# server-side from the plain signature TEXT; its API exposes no
+# caller-supplied-vector path, so PHAGE never computes or supplies a vector.
+# A constant naming an embedding model would imply a capability this project
+# does not have.
 
 # Gemma: SENTINEL cheap first-pass triage tier. Resolved empirically when
 # SENTINEL was built, same discipline as the Gemini id above: "gemma-3-27b-it"

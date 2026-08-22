@@ -12,8 +12,15 @@ Region policy (decided in Phase 1; evidence lives in the probe scripts):
     So PHAGE splits location by concern:
 
         MODEL_LOCATION = "global"       -> all Gemini / Gemma *inference*
-        INFRA_LOCATION = "us-central1"  -> Cloud Run, Firestore, Agent Engine,
-                                           Memory Bank, Model Armor, Registry
+        INFRA_LOCATION = "us-central1"  -> Agent Engine, and the Memory Bank
+                                           it hosts
+
+    That INFRA list is exhaustive, not illustrative. INFRA_LOCATION is read in
+    exactly two places: the agentplatform client ARCHIVIST builds
+    (archivist/memory.py:177) and AGENT_ENGINE_RESOURCE below. Both are Agent
+    Engine / Memory Bank. No other regional service is configured here, because
+    PHAGE does not call one — see README.md's scope table for the primitives
+    the original design named but the shipped code never wires.
 
     No embedding location appears in that split: PHAGE never calls an embedding
     model. Memory Bank embeds server-side from the signature text, and its API
@@ -40,8 +47,10 @@ INFRA_LOCATION = os.environ.get("PHAGE_INFRA_LOCATION", "us-central1")
 MODEL_LOCATION = os.environ.get("PHAGE_MODEL_LOCATION", "global")
 
 # --- Models (all Google) ------------------------------------------------------
-# Gemini 3.5 Flash: VACCINATOR payload authoring, SENTINEL escalation tier,
-# MARROW routing. Flash (not Pro) for sub-second demo responses.
+# Gemini 3.5 Flash: VACCINATOR payload authoring, SENTINEL escalation tier, and
+# the SAIL target agents themselves. NOT MARROW — MARROW adds no model, no
+# routing and no client (marrow/agent.py:59-61). Flash (not Pro) for
+# sub-second demo responses.
 GEMINI_MODEL = os.environ.get("PHAGE_GEMINI_MODEL", "gemini-3.5-flash")
 
 # No embedding model is configured here, deliberately. Memory Bank embeds
@@ -58,8 +67,15 @@ GEMINI_MODEL = os.environ.get("PHAGE_GEMINI_MODEL", "gemini-3.5-flash")
 # Gemini 3.x.
 GEMMA_MODEL = os.environ.get("PHAGE_GEMMA_MODEL", "gemma-4-26b-a4b-it-maas")
 
-# --- Agent Engine (MARROW orchestrator + Memory Bank) -------------------------
+# --- Agent Engine (host for Memory Bank) --------------------------------------
+# Agent Engine is used ONLY as the Memory Bank host that ARCHIVIST reads and
+# writes. MARROW is NOT deployed to Agent Engine Runtime — it runs locally via
+# InMemoryRunner (scripts/run_marrow.py).
 AGENT_ENGINE_ID = os.environ.get("PHAGE_AGENT_ENGINE_ID", "1868793184486686720")
+
+# Fully-qualified form. Currently unreferenced: the memories API takes the short
+# `reasoningEngines/{id}` form instead, which ARCHIVIST builds itself
+# (archivist/memory.py:168-171). Kept as the canonical spelling of the resource.
 AGENT_ENGINE_RESOURCE = (
     f"projects/{PROJECT_NUMBER}/locations/{INFRA_LOCATION}"
     f"/reasoningEngines/{AGENT_ENGINE_ID}"

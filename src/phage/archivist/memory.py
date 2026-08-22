@@ -45,16 +45,27 @@ logger = logging.getLogger(__name__)
 # Threshold — one constant, one place (build brief 3.2). Do not inline this
 # value anywhere else in the codebase.
 # --------------------------------------------------------------------------- #
-RECOGNITION_DISTANCE_THRESHOLD = 0.59  # Tuned against data/recognition_pairs.jsonl
-                                       # (scripts/tune_threshold.py, docs/PHAGE_cc_prompt_
-                                       # archivist_dataset.md Task 3). variant and
-                                       # hard_negative overlap (hard_negative min 0.4101 <
-                                       # variant min 0.4257) — NOT cleanly separable, so this
-                                       # is the min-FPR threshold subject to TPR>=0.95:
-                                       # TPR=1.00, FPR=0.72 on n=25/25. That FPR is real and
-                                       # high; see this brief's report for why it points at
-                                       # the signature-text format, not just the number.
-                                       # Single source of truth: do not inline elsewhere.
+RECOGNITION_DISTANCE_THRESHOLD = 0.59  # Retuned under leave-one-archetype-out
+                                       # evaluation (scripts/loao_eval.py, docs/PHAGE_cc_
+                                       # prompt_loao_eval.md Task 3), correcting a
+                                       # contaminated measurement: the original FPR 0.72
+                                       # (docs/PHAGE_cc_prompt_archivist_dataset.md) counted
+                                       # a hard negative recognizing its OWN twin already in
+                                       # the pool as an error. Pooled across all 8 folds
+                                       # (each archetype held out of the anchor pool in
+                                       # turn, so a held-out template genuinely has no twin):
+                                       # AUC=0.9727, TPR=1.00, corrected FPR=0.1833 (11/60) —
+                                       # clears the 0.25 bar. The 0.59 VALUE is unchanged
+                                       # from before (same grid point: smallest 0.01 step
+                                       # above the positive distribution's max, ~0.5824,
+                                       # which the contamination never touched); what changed
+                                       # is the negative population, and therefore the FPR
+                                       # this number is honestly measured against. Residual
+                                       # FPR concentrates almost entirely in one archetype
+                                       # pair (indirect-injection / -readonly share their
+                                       # opening phrase near-verbatim), not spread evenly —
+                                       # see this brief's per-fold report. Single source of
+                                       # truth: do not inline elsewhere.
 
 # Comparison is STRICTLY `distance < RECOGNITION_DISTANCE_THRESHOLD` — a
 # result exactly at the threshold is a MISS. Do not invert this to `>`; the

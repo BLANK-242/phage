@@ -45,12 +45,15 @@ logger = logging.getLogger(__name__)
 # Threshold — one constant, one place (build brief 3.2). Do not inline this
 # value anywhere else in the codebase.
 # --------------------------------------------------------------------------- #
-RECOGNITION_DISTANCE_THRESHOLD = 0.65  # UNTUNED stopgap — tuned in Task 3 of
-                                       # docs/PHAGE_cc_prompt_archivist_dataset.md against
-                                       # the labeled pair set. Sits 0.12 above the observed
-                                       # paraphrase distance (0.529) and 0.22 below the
-                                       # observed unrelated distance (0.875), so ARCHIVIST
-                                       # behaves sanely if anything runs before that lands.
+RECOGNITION_DISTANCE_THRESHOLD = 0.59  # Tuned against data/recognition_pairs.jsonl
+                                       # (scripts/tune_threshold.py, docs/PHAGE_cc_prompt_
+                                       # archivist_dataset.md Task 3). variant and
+                                       # hard_negative overlap (hard_negative min 0.4101 <
+                                       # variant min 0.4257) — NOT cleanly separable, so this
+                                       # is the min-FPR threshold subject to TPR>=0.95:
+                                       # TPR=1.00, FPR=0.72 on n=25/25. That FPR is real and
+                                       # high; see this brief's report for why it points at
+                                       # the signature-text format, not just the number.
                                        # Single source of truth: do not inline elsewhere.
 
 # Comparison is STRICTLY `distance < RECOGNITION_DISTANCE_THRESHOLD` — a

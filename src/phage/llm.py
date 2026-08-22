@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import random
 import re
+import sys
 import time
 from typing import Any, Optional
 
@@ -31,7 +32,20 @@ def generate_with_backoff(client, *, model, contents, config, max_attempts: int 
             code = getattr(exc, "code", None)
             if code not in _RETRYABLE or attempt == max_attempts:
                 raise
-            time.sleep(delay + random.uniform(0, 0.5))
+            # Computed ONCE and used twice — the value logged is the value
+            # slept. Re-rolling the jitter for the log line would make the
+            # diagnostic lie about the delay it is reporting.
+            sleep_for = delay + random.uniform(0, 0.5)
+            # stderr, never stdout: the demo runner's stdout is the recorded
+            # artifact (docs/demo_script.md quotes it verbatim). Observation
+            # only — retries, delays, jitter and raise behaviour are unchanged.
+            print(
+                f"[phage] llm attempt {attempt}/{max_attempts} failed "
+                f"model={model} code={code} — retrying in {sleep_for:.2f}s",
+                file=sys.stderr,
+                flush=True,
+            )
+            time.sleep(sleep_for)
             delay *= 2
     raise RuntimeError("unreachable")
 

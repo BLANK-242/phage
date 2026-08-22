@@ -96,7 +96,44 @@ async def run_pass1(target_id: str, archetype_id: str, exporter: SqliteSpanExpor
     target = next(t for t in FLEET if t.id == target_id)
     print(f"=== PASS 1 — target={target_id} archetype={archetype_id} ===")
 
-    payloads = generate_payloads(target.tool_scope, target_id=target_id)
+    # generate_payloads tailors EVERY archetype applicable to this target (7
+    # for SUPPLIER-RELAY), not just the one asked for, and by default a
+    # MutationRefused from ANY of them propagates and kills the run. Measured:
+    # 2 aborts in 6 runs, both on obfuscation-encoding — an archetype this
+    # scene never uses (docs/demo_script.md, rehearsal checklist). That is a
+    # ~1-in-3 take-abort rate caused by a payload that is not on camera.
+    #
+    # So this script opts in to per-archetype isolation. A refusal on an
+    # archetype we are NOT demoing is printed and skipped; a refusal on the
+    # requested one still aborts loudly below. generate_payloads' default is
+    # untouched — MARROW's contract is unchanged.
+    refused: list[MutationRefused] = []
+
+    def _note_refusal(exc: MutationRefused) -> None:
+        refused.append(exc)
+        # No "skipping" here — whether it is skippable depends on whether it
+        # is the demo archetype, decided below.
+        print(f"  [refused] archetype {exc.archetype_id!r} — no paraphrase after {exc.attempts} attempt(s)")
+
+    payloads = generate_payloads(
+        target.tool_scope, target_id=target_id, on_mutation_refused=_note_refusal
+    )
+    if refused:
+        # len(payloads) is the full selected set: a refused archetype still
+        # yields a local-fallback payload, so it is already counted here.
+        print(
+            f"  {len(refused)} of {len(payloads)} archetypes refused mutation; "
+            f"demo archetype {archetype_id!r} "
+            + ("REFUSED" if any(r.archetype_id == archetype_id for r in refused) else "OK")
+        )
+    # The requested archetype refusing is NOT recoverable — it is the payload
+    # the scene is built on, and its paraphrase is what pass 2 recognizes.
+    # Re-raise so the take is voided the same way it was before this opt-in.
+    for r in refused:
+        if r.archetype_id == archetype_id:
+            print(f"  ABORT: the demo archetype itself refused mutation ({archetype_id})")
+            raise r
+
     payload = next((p for p in payloads if p.archetype_id == archetype_id), None)
     if payload is None:
         print(f"  {archetype_id} not applicable to {target_id} (not in this target's selected archetypes)")

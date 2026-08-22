@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 from google.genai import types
 
@@ -219,6 +219,7 @@ def generate_payloads(
     use_gemini: bool = True,
     model: Optional[str] = None,
     target_id: Optional[str] = None,
+    on_mutation_refused: Optional[Callable[[MutationRefused], None]] = None,
 ) -> list[Payload]:
     """Generate tailored injection payloads for a target's declared tool scope.
 
@@ -231,12 +232,29 @@ def generate_payloads(
     identifies which target it happened against. It does not affect
     selection, rendering, or provenance.
 
-    MutationRefused propagates out of this function uncaught (see the
-    MutationRefused docstring and the except clause in _one below) — a
+    MutationRefused propagates out of this function uncaught BY DEFAULT (see
+    the MutationRefused docstring and the except clause in _one below) — a
     caller that wants the old "one bad archetype doesn't sink the others"
     behavior for a genuine refusal still gets it; a caller that wants to know
     when a mutation never actually happened must not have that silently
-    absorbed into local-fallback.
+    absorbed into local-fallback. **MARROW relies on this default and is
+    unaffected by the opt-in below.**
+
+    ``on_mutation_refused`` is that opt-in, and it exists for exactly one
+    caller shape: a consumer that wants ONE named archetype and must not be
+    killed by a refusal on a DIFFERENT one. When supplied, a MutationRefused
+    from any archetype is passed to this callback instead of propagating, and
+    that archetype falls back to its deterministic local rendering (source
+    "local-fallback", paraphrase None) like any other tailoring failure. The
+    caller is then responsible for deciding whether the refusal mattered —
+    e.g. scripts/run_demo_scene.py aborts loudly if the archetype it actually
+    asked for is among the refused, and continues otherwise.
+
+    The callback is invoked on the CALLING thread, not a worker: `_one`
+    carries the exception back as a return value and the loop over
+    `pool.map` calls the callback as results are consumed. `pool.map`
+    yields in `selected` order, so refusals are reported deterministically
+    and printing from the callback cannot interleave.
     """
     tools = classify_scope(tool_scope)
     selected = select_archetypes(tool_scope)
@@ -255,25 +273,38 @@ def generate_payloads(
             client = genai.Client(**config.gemini_client_kwargs())
         resolved_model = model or config.GEMINI_MODEL  # same model for ALL archetypes; no refusal-defeating routing
 
-        def _one(a: Archetype) -> tuple[str, Optional[tuple[str, str]]]:
+        def _one(
+            a: Archetype,
+        ) -> tuple[str, Optional[tuple[str, str]], Optional[MutationRefused]]:
             try:
-                return a.id, _tailor_one(
-                    client,
-                    model=resolved_model,
-                    tool_scope=tool_scope,
-                    arch_id=a.id,
-                    text=local[a.id],
-                    target=target_id,
+                return (
+                    a.id,
+                    _tailor_one(
+                        client,
+                        model=resolved_model,
+                        tool_scope=tool_scope,
+                        arch_id=a.id,
+                        text=local[a.id],
+                        target=target_id,
+                    ),
+                    None,
                 )
-            except MutationRefused:
-                raise  # must propagate — see MutationRefused; not a fallback case
+            except MutationRefused as exc:
+                if on_mutation_refused is None:
+                    raise  # default: must propagate — see MutationRefused
+                # Opt-in path: carry the exception back to the main thread
+                # rather than calling the callback from this worker, so the
+                # callback runs single-threaded and in `selected` order.
+                return a.id, None, exc
             except Exception:
-                return a.id, None  # one archetype failing must not affect any other
+                return a.id, None, None  # one archetype failing must not affect any other
 
         with ThreadPoolExecutor(max_workers=4) as pool:
-            for aid, result in pool.map(_one, selected):
+            for aid, result, refusal in pool.map(_one, selected):
                 if result is not None:
                     polished[aid] = result
+                if refusal is not None and on_mutation_refused is not None:
+                    on_mutation_refused(refusal)
 
     payloads: list[Payload] = []
     for a in selected:

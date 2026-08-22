@@ -1,5 +1,7 @@
 # PHAGE — Build Brief (v3)
 
+> **Historical document — the original build plan, written 2026-08-10.** It records what was *intended*, not what was built; several primitives it assumes (Model Armor, Agent Gateway, Agent Registry, Agent Identity, Firestore, `text-embedding-005`, MARROW on Agent Engine Runtime) are not wired in the shipped code. For the implemented architecture, see [README.md](README.md).
+
 I'm building a submission for Google Cloud's **All Things Agentic Hackathon** on Devpost, in the **Fortified Enterprise Fleet** category. Hard deadline: **2026-08-31, 17:00 PDT** (= 2026-09-01, 01:00 Africa/Casablanca). I treat 2026-08-30 as the last working day.
 
 Everything below is already decided. Don't re-litigate it — build it.

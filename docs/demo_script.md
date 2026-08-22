@@ -20,9 +20,10 @@ inline here so the script stands on its own without them.
 ## Scope note — one scene, not two, and why
 
 `PHAGE_build_prompt.md:192-194` specifies a two-scene spine: Scene 1 fires a payload,
-shows detection and containment, then re-fires a *mutated* payload for millisecond
-recognition; Scene 2 separately induces a worker agent to loop and shows MACROPHAGE
-quarantining it live.
+shows detection and containment, then re-fires a *mutated* payload for recognition
+(the spec says "in milliseconds" — measured, it is ~2s; see the latency section below);
+Scene 2 separately induces a worker agent to loop and shows MACROPHAGE quarantining it
+live.
 
 Only the first scene is built. MACROPHAGE's containment action — confirmed during recon
 (`docs/PHAGE_cc_prompt_macrophage_containment_recon.md`) and implemented in
@@ -97,6 +98,12 @@ result, cut to the Agent Engine → Memory Bank page for
 `reasoningEngines/1868793184486686720` in the `phage-dev` console, showing the scope
 empty, before cutting back to the terminal for scene 1. This ties the console shot to a
 real claim the terminal just made rather than a disconnected pan.
+
+**Narrate this shot as "the Memory Bank ARCHIVIST writes to," and nothing more.** The
+Agent Engine instance on screen hosts Memory Bank; it does **not** run MARROW, which
+executes locally via `InMemoryRunner` (`scripts/run_marrow.py:204`). Saying "here is our
+agent running on Agent Engine" over this shot would be false and is exactly the kind of
+claim a judge can check.
 
 ---
 
@@ -213,7 +220,8 @@ defensible if a judge asks.
    `scripts/run_demo_scene.py`. No web UI exists or is built for this.
 2. **Raw distance beside threshold, plus a banner.** `distance=0.4452  threshold=0.59  ->
    RECOGNIZED` is quoted verbatim above from real output — not a converted score.
-3. **No architecture diagram.** Not included.
+3. **No architecture diagram.** Not in the video. (One was later added to `README.md` as
+   a repo artifact — that is a separate deliverable and does not change this decision.)
 4. **Target/archetype from whichever rehearsal run lands cleanest.** `SUPPLIER-RELAY` /
    `data-exfiltration` — the first candidate in `scripts/run_demo_scene.py`'s ordered list
    — landed on the first rehearsal attempt and again on the second run. No re-search
@@ -226,6 +234,32 @@ defensible if a judge asks.
    Narration wording: **"four ADK agents, plus ARCHIVIST — the semantic memory library
    that gives the fleet recognition."** Describe ARCHIVIST by what it does, not folded
    into an agent count the repo doesn't support.
+
+---
+
+## Do not say these on camera
+
+Audited line by line against README.md's *What is not wired yet* table. Each of these is
+part of the original design (`PHAGE_build_prompt.md`, now marked historical) and is
+**enabled or planned but not called by any code path**. A judge can open the repo, so
+narrating any of them as live is a checkable false claim.
+
+| Do not say | Say instead |
+|---|---|
+| "Model Armor blocks it at the barrier" / any innate-barrier beat | Nothing — there is no barrier in the fire path. The payload goes straight to the target. |
+| "fired through the Agent Gateway" | "fired at the target agent directly, in-process" (`InMemoryRunner`) |
+| "VACCINATOR reads the Agent Registry" | "VACCINATOR reads each target's declared tool scope" (`src/phage/targets.py`) |
+| "MACROPHAGE revokes its Agent Identity" | "MACROPHAGE revokes the specific tool the exploit used, from that target's live tool list" |
+| "findings/quarantine records go to Firestore" | Nothing — Firestore is unused. Verdicts live in session state for the run. |
+| "embedded with `text-embedding-005`" | "Memory Bank embeds the signature text server-side" — the API has no caller-supplied-vector path |
+| "cosine similarity above a threshold" | "vector **distance** below a threshold — smaller is closer" (`distance=0.4452 threshold=0.59`) |
+| "MARROW runs on Agent Engine Runtime" | "MARROW runs locally; Agent Engine hosts Memory Bank" |
+| "recognition fires in milliseconds" | the number actually printed — ~2 seconds (see latency section) |
+| "traces from Agent Observability" | "real OpenTelemetry spans, exported locally" (`phage_traces.db`) |
+
+Everything the script *does* narrate — Gemini authoring, Gemma triage, the fire, the
+spans, tool revocation, Memory Bank recognition — is wired and demonstrated by the output
+quoted above.
 
 ---
 
@@ -243,58 +277,85 @@ Run at least once before 2026-08-26. Completed 2026-08-22, twice — results bel
   .../memories/8747232718334459904` — real resource name returned.
 - [x] **The mutated payload recognizes, with distance visible in real output.**
   `distance=0.4452  threshold=0.59  -> RECOGNIZED`.
-- [x] **Total runtime measured against the 4:00 ceiling.** Eight pass-1 executions of the
-  identical command; six were a dedicated timing series (2 of those aborted on
-  `MutationRefused` and produced no duration):
+- [x] **Total runtime measured against the 4:00 ceiling.** Fourteen pass-1 executions of
+  the identical command across three series.
 
-  | Run | pass 1 | pass 2 | `recognize()` alone | execute_tool spans |
+  **Series A and B, before per-archetype refusal isolation** (2 of 6 in series B aborted
+  on a refusal in an archetype the demo never uses):
+
+  | Run | pass 1 | pass 2 | `recognize()` alone |
+  |---|---|---|---|
+  | A1 | 25.6s | 2.2s | not instrumented |
+  | A2 | **72.8s** | 2.6s | 2632 ms |
+  | B1 | 35.2s | 2.0s | 1960 ms |
+  | B2 | 25.8s | 2.0s | 2038 ms |
+  | B3 | — aborted, `MutationRefused` | — | — |
+  | B4 | 44.2s | 1.9s | 1880 ms |
+  | B5 | — aborted, `MutationRefused` | — | — |
+  | B6 | 50.4s | 1.9s | 1925 ms |
+
+  **Series C, after isolation** (`scripts/run_demo_scene.py` now opts in to
+  `generate_payloads(..., on_mutation_refused=...)`):
+
+  | Run | pass 1 | pass 2 | `recognize()` alone | notes |
   |---|---|---|---|---|
-  | earlier #1 | 25.6s | 2.2s | not instrumented | 7 |
-  | earlier #2 | **72.8s** | 2.6s | 2632 ms | 46 |
-  | series 1 | 35.2s | 2.0s | 1960 ms | 48 |
-  | series 2 | 25.8s | 2.0s | 2038 ms | 50 |
-  | series 3 | — aborted, `MutationRefused` | — | — | — |
-  | series 4 | 44.2s | 1.9s | 1880 ms | 50 |
-  | series 5 | — aborted, `MutationRefused` | — | — | — |
-  | series 6 | 50.4s | 1.9s | 1925 ms | 59 |
+  | C1 | 31.6s | 2.0s | 1989 ms | |
+  | C2 | 29.6s | 2.0s | 1976 ms | |
+  | C3 | 52.5s | 1.9s | 1864 ms | |
+  | C4 | 48.7s | 2.0s | 2010 ms | **`obfuscation-encoding` refused — isolated, run completed** |
+  | C5 | 30.9s | 2.1s | 2098 ms | |
+  | C6 | 51.4s | 1.9s | 1948 ms | |
 
-  **Worst case pass 1 = 72.8s.** Range 25.6–72.8s, a 2.8× spread. Pass 2 is stable at
-  1.9–2.6s throughout. Budget against 72.8s — the video is unedited, so a slow draw
-  cannot be cut around.
+  **Aborts: 2 of 6 before, 0 of 6 after.** C4 is the proof — it drew the same refusal that
+  killed B3 and B5, printed it, and finished normally:
+
+  ```
+    [refused] archetype 'obfuscation-encoding' — no paraphrase after 3 attempt(s)
+    1 of 7 archetypes refused mutation; demo archetype 'data-exfiltration' OK
+  ```
+
+  **Worst case pass 1 = 72.8s** (A2), still the number to budget against: isolation
+  removes aborts but does not make a slow draw faster, and the fire path is unchanged.
+  Worst case within series C alone is 52.5s. Pass 2 is stable at 1.9–2.6s across all
+  twelve completed runs. The video is unedited, so a slow draw cannot be cut around.
 - [x] **Isolated recognition latency measured.** ~1.9–2.6s warm, 6.3s cold. Narration must
   state this, not "milliseconds" — see the latency section under Scene 1, pass 2.
 
 **Two named failure modes, confirmed as real, distinguishable output:**
 
-- **`MutationRefused` — the single largest risk to the take. Measured 2 aborts in 6 runs
-  (33%), not 3.8%.** Real captured output, twice, from the six-run timing series:
+- **`MutationRefused` — was the single largest risk to the take; now mostly defused.**
+
+  `run_pass1()` calls `generate_payloads(...)`, which tailors **all 7 archetypes
+  applicable to SUPPLIER-RELAY** (`instruction-override`, `data-exfiltration`,
+  `indirect-injection`, `indirect-injection-readonly`, `scope-escalation`,
+  `obfuscation-encoding`, `persona-maintenance-mode`) before the requested one is selected
+  out of the list. By default `MutationRefused` propagates uncaught from *any* of the
+  seven, so a refusal on an archetype the demo never shows killed the whole run — measured
+  **2 aborts in 6 runs**, both on `obfuscation-encoding`, whose template is base64-encoded
+  "IGNORE PREVIOUS INSTRUCTIONS" and is by far the most refusal-prone.
+
+  `scripts/run_demo_scene.py` now opts in to per-archetype isolation via
+  `generate_payloads(..., on_mutation_refused=...)`. A refusal in an archetype the scene
+  does not use prints one line and the run continues:
   ```
-  === PASS 1 — target=SUPPLIER-RELAY archetype=data-exfiltration ===
-    MutationRefused: MutationRefused: target='SUPPLIER-RELAY' archetype='obfuscation-encoding' — no usable paraphrase after 3 attempt(s)
+    [refused] archetype 'obfuscation-encoding' — no paraphrase after 3 attempt(s)
+    1 of 7 archetypes refused mutation; demo archetype 'data-exfiltration' OK
   ```
-  **Read the archetype in that message: `obfuscation-encoding`, not the one being
-  demoed.** `run_pass1()` calls `generate_payloads(target.tool_scope, ...)`, which tailors
-  **all 7 archetypes applicable to SUPPLIER-RELAY** (`instruction-override`,
-  `data-exfiltration`, `indirect-injection`, `indirect-injection-readonly`,
-  `scope-escalation`, `obfuscation-encoding`, `persona-maintenance-mode`) before the
-  requested one is selected out of the list at `run_demo_scene.py:99`. `MutationRefused`
-  propagates uncaught from *any* of the seven (`vaccinator/engine.py:268-269`), so a
-  refusal on an archetype the demo never uses kills the run before
-  `data-exfiltration` is even looked at. `obfuscation-encoding` — whose template is
-  base64-encoded "IGNORE PREVIOUS INSTRUCTIONS" — is by far the most refusal-prone, and
-  was the culprit both times.
+  Measured after the change: **0 aborts in 6 runs**, including one run that drew exactly
+  this refusal and completed normally. `generate_payloads`' default is unchanged, so
+  MARROW's contract — a refusal must never be silently absorbed into local-fallback — is
+  untouched.
 
-  So the per-payload 3.8% refusal rate compounds across 7 archetypes into a take-abort
-  rate of roughly **1 in 3**. Budget on that: expect to burn takes. The `MutationRefused`
-  line also doubles its prefix on screen (`run_demo_scene.py:204` prints
-  `f"  MutationRefused: {exc}"` and `str(exc)` already begins `"MutationRefused: "`).
-
-  **If this fires on the actual take, the take is void — re-run, don't salvage.** Do not
-  narrate around it live.
-
-  *Not fixed here — a fix (generating only the requested archetype in direct mode) is a
-  behavior change to the runner, out of scope for a script-writing pass. It is the single
-  highest-value change available before 2026-08-26 and should get its own brief.*
+  **A refusal on `data-exfiltration` itself still voids the take**, by design: it is the
+  payload the scene is built on and its paraphrase is what pass 2 recognizes. That prints
+  ```
+    [refused] archetype 'data-exfiltration' — no paraphrase after 3 attempt(s)
+    1 of 7 archetypes refused mutation; demo archetype 'data-exfiltration' REFUSED
+    ABORT: the demo archetype itself refused mutation (data-exfiltration)
+  ```
+  and re-raises. **If that fires on the actual take, the take is void — re-run, don't
+  salvage.** Do not narrate around it live. At the per-payload 3.8% rate this is now the
+  only refusal path that can end a take.
 - **Recognition-path API error.** Forced this rehearsal by injecting a broken Memory Bank
   client into `recognize()` (`ConnectionError` simulating an outage). Real captured output:
   ```
@@ -326,7 +387,7 @@ under Scene 1, pass 2 for the numbers and the honest replacement framing.
 
 ## Runtime estimate vs. the 4:00 ceiling
 
-Eight measured executions (table in the Rehearsal checklist above): pass 1 ranges
+Twelve completed executions (tables in the Rehearsal checklist above): pass 1 ranges
 **25.6s to 72.8s**, pass 2 is stable at **1.9–2.6s**. The spread is pass 1 only — how many
 tools the target decides to call before it mails the data out. **Worst case: 72.8s.**
 

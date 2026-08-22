@@ -243,26 +243,58 @@ Run at least once before 2026-08-26. Completed 2026-08-22, twice — results bel
   .../memories/8747232718334459904` — real resource name returned.
 - [x] **The mutated payload recognizes, with distance visible in real output.**
   `distance=0.4452  threshold=0.59  -> RECOGNIZED`.
-- [x] **Total runtime measured against the 4:00 ceiling.** Run 1:
-  `TIMING: pass1=25.6s  pass2=2.2s  total=27.8s`. Run 2 (instrumented):
-  `TIMING: pass1=72.8s  pass2=2.6s  (recognize() alone=2632 ms)  total=75.5s`. Script
-  execution alone. Budget against run 2 — see Runtime estimate below.
+- [x] **Total runtime measured against the 4:00 ceiling.** Eight pass-1 executions of the
+  identical command; six were a dedicated timing series (2 of those aborted on
+  `MutationRefused` and produced no duration):
+
+  | Run | pass 1 | pass 2 | `recognize()` alone | execute_tool spans |
+  |---|---|---|---|---|
+  | earlier #1 | 25.6s | 2.2s | not instrumented | 7 |
+  | earlier #2 | **72.8s** | 2.6s | 2632 ms | 46 |
+  | series 1 | 35.2s | 2.0s | 1960 ms | 48 |
+  | series 2 | 25.8s | 2.0s | 2038 ms | 50 |
+  | series 3 | — aborted, `MutationRefused` | — | — | — |
+  | series 4 | 44.2s | 1.9s | 1880 ms | 50 |
+  | series 5 | — aborted, `MutationRefused` | — | — | — |
+  | series 6 | 50.4s | 1.9s | 1925 ms | 59 |
+
+  **Worst case pass 1 = 72.8s.** Range 25.6–72.8s, a 2.8× spread. Pass 2 is stable at
+  1.9–2.6s throughout. Budget against 72.8s — the video is unedited, so a slow draw
+  cannot be cut around.
 - [x] **Isolated recognition latency measured.** ~1.9–2.6s warm, 6.3s cold. Narration must
   state this, not "milliseconds" — see the latency section under Scene 1, pass 2.
 
 **Two named failure modes, confirmed as real, distinguishable output:**
 
-- **`MutationRefused`** (measured refusal rate 3.8%, `docs/PHAGE_cc_prompt_archivist_dataset.md`).
-  Exact message, confirmed from source (`src/phage/vaccinator/engine.py:49-56`, not fired
-  live this rehearsal — 3.8% is too low to force reliably without a code change, and
-  changing tailoring code is out of this brief's scope):
+- **`MutationRefused` — the single largest risk to the take. Measured 2 aborts in 6 runs
+  (33%), not 3.8%.** Real captured output, twice, from the six-run timing series:
   ```
-  MutationRefused: target='SUPPLIER-RELAY' archetype='data-exfiltration' — no usable paraphrase after 3 attempt(s)
+  === PASS 1 — target=SUPPLIER-RELAY archetype=data-exfiltration ===
+    MutationRefused: MutationRefused: target='SUPPLIER-RELAY' archetype='obfuscation-encoding' — no usable paraphrase after 3 attempt(s)
   ```
-  `scripts/run_demo_scene.py`'s `except MutationRefused as exc: print(f"  MutationRefused: {exc}")`
-  means the on-screen line doubles the prefix (`str(exc)` already starts with
-  `"MutationRefused: "`). **If this fires on the actual take, the take is void — re-run,
-  don't salvage.** Do not narrate around it live.
+  **Read the archetype in that message: `obfuscation-encoding`, not the one being
+  demoed.** `run_pass1()` calls `generate_payloads(target.tool_scope, ...)`, which tailors
+  **all 7 archetypes applicable to SUPPLIER-RELAY** (`instruction-override`,
+  `data-exfiltration`, `indirect-injection`, `indirect-injection-readonly`,
+  `scope-escalation`, `obfuscation-encoding`, `persona-maintenance-mode`) before the
+  requested one is selected out of the list at `run_demo_scene.py:99`. `MutationRefused`
+  propagates uncaught from *any* of the seven (`vaccinator/engine.py:268-269`), so a
+  refusal on an archetype the demo never uses kills the run before
+  `data-exfiltration` is even looked at. `obfuscation-encoding` — whose template is
+  base64-encoded "IGNORE PREVIOUS INSTRUCTIONS" — is by far the most refusal-prone, and
+  was the culprit both times.
+
+  So the per-payload 3.8% refusal rate compounds across 7 archetypes into a take-abort
+  rate of roughly **1 in 3**. Budget on that: expect to burn takes. The `MutationRefused`
+  line also doubles its prefix on screen (`run_demo_scene.py:204` prints
+  `f"  MutationRefused: {exc}"` and `str(exc)` already begins `"MutationRefused: "`).
+
+  **If this fires on the actual take, the take is void — re-run, don't salvage.** Do not
+  narrate around it live.
+
+  *Not fixed here — a fix (generating only the requested archetype in direct mode) is a
+  behavior change to the runner, out of scope for a script-writing pass. It is the single
+  highest-value change available before 2026-08-26 and should get its own brief.*
 - **Recognition-path API error.** Forced this rehearsal by injecting a broken Memory Bank
   client into `recognize()` (`ConnectionError` simulating an outage). Real captured output:
   ```
@@ -294,11 +326,9 @@ under Scene 1, pass 2 for the numbers and the honest replacement framing.
 
 ## Runtime estimate vs. the 4:00 ceiling
 
-Measured script execution, two runs of the identical command: **27.8s** (pass 1 25.6s,
-pass 2 2.2s) and **75.5s** (pass 1 72.8s, pass 2 2.6s), for the full fire → detect →
-contain → mutate → recognize spine including live Gemini calls for mutation and SENTINEL
-triage. The spread is pass 1 only — how many tools the target decides to call before it
-mails the data out. Pass 2 is stable at ~2.2–2.6s across both runs.
+Eight measured executions (table in the Rehearsal checklist above): pass 1 ranges
+**25.6s to 72.8s**, pass 2 is stable at **1.9–2.6s**. The spread is pass 1 only — how many
+tools the target decides to call before it mails the data out. **Worst case: 72.8s.**
 
 Budget against the **slow** run, since a take can't be re-cut around a long pass 1:
 - Preflight (purge command + console cutaway): ~20s

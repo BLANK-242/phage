@@ -31,7 +31,13 @@ Run: uv run python scripts/probe_distance.py
 
 from __future__ import annotations
 
-from phage.archivist.memory import _client, _engine_name, record, recognize
+from phage.archivist.memory import (
+    RECOGNITION_DISTANCE_THRESHOLD,
+    _client,
+    _engine_name,
+    record,
+    recognize,
+)
 
 _TARGET_ID = "PROBE-DISTANCE-TARGET"
 _ARCHETYPE_ID = "instruction-override"
@@ -90,7 +96,11 @@ def main() -> None:
             print(f"--- {label} ---")
             print(f"  query injection_text : {text}")
             print(f"  distance             : {result.distance}")
-            print(f"  recognized (<0.35)   : {result.recognized}")
+            # Interpolated from the constant, never a literal: the previous
+            # hardcoded "(<0.35)" outlived the threshold it described and
+            # ended up contradicting the distances printed beside it.
+            label_col = f"recognized (<{RECOGNITION_DISTANCE_THRESHOLD})"
+            print(f"  {label_col:<21}: {result.recognized}")
             print(f"  raw retrieved fact   : {result.matched_fact}")
             print()
 

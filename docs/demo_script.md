@@ -4,8 +4,9 @@
 **Recording date:** 2026-08-26
 **Chosen target/archetype:** `SUPPLIER-RELAY` / `data-exfiltration` — resolved by rehearsal
 (Decision 4 below), not pre-committed.
-**Runner:** `scripts/run_demo_scene.py` (with `TARGET ARCHETYPE` argv on take day — see
-Rehearsal Log)
+**Runner:** `scripts/run_demo_scene.py SUPPLIER-RELAY data-exfiltration` — the two
+arguments are **mandatory** for every take; see "Always pass the target and archetype
+explicitly" below.
 
 Every quoted terminal line below is copied verbatim from a real rehearsal run captured
 2026-08-22 (Task 3 — nothing here is paraphrased or aspirational): a full
@@ -87,6 +88,35 @@ All eval scopes clean: True
 ```
 
 Only after `post-delete count: 0 (expect 0)` prints does recording start.
+
+---
+
+## Always pass the target and archetype explicitly — every take, no exceptions
+
+**Run this, exactly:**
+
+```bash
+uv run python scripts/run_demo_scene.py SUPPLIER-RELAY data-exfiltration
+```
+
+**Never run `scripts/run_demo_scene.py` with no arguments on camera.** With no argv it
+falls into candidate-search mode: it walks an ordered list of six `(target, archetype)`
+pairs and stops at the first one that lands. Which pair that turns out to be is **not
+deterministic** — tailoring and target behaviour both run at `temperature=0.7`, and a
+refusal or a declined verdict on an earlier candidate silently advances the search to the
+next one.
+
+That is fine for rehearsal and actively useful for finding a pair that works. On camera it
+is a trap: the narration names SUPPLIER-RELAY and its `send_email` / `read_contacts` tool
+scope before the run starts, and if the search quietly moves to QUOTE-BOT or STOCK-KEEPER
+the spoken words stop matching the screen mid-take. It is also slower, because every
+skipped candidate costs a full tailoring round trip before it is abandoned. Both were
+observed in real runs: candidate-search invocations have walked all six pairs and ended on
+`NO CANDIDATE LANDED` without ever firing.
+
+Two arguments remove the whole failure class. Direct mode goes straight at the chosen pair,
+and if that pair refuses it aborts loudly instead of substituting a different one — which
+is the correct behaviour for a take (see the `MutationRefused` section below).
 
 ---
 
@@ -207,7 +237,7 @@ so the number on screen is stable run to run even though latency is not.
 The cost is a network round trip to Memory Bank, which embeds the query server-side; there
 is no local vector path to make faster. **Narration must state the number actually printed
 — roughly two and a half seconds — and must not claim milliseconds.** The honest framing:
-recognition replaces a full fire-and-triage cycle (measured 25.6s and 72.8s across two
+recognition replaces a full fire-and-triage cycle (measured 25.6–72.8s across fifteen
 rehearsal runs) with a single ~2s lookup, and it does that *before* the payload is ever
 sent. That is the real claim, it is a far better one than "milliseconds," and it is
 defensible if a judge asks.
@@ -248,7 +278,7 @@ narrating any of them as live is a checkable false claim.
 |---|---|
 | "Model Armor blocks it at the barrier" / any innate-barrier beat | Nothing — there is no barrier in the fire path. The payload goes straight to the target. |
 | "fired through the Agent Gateway" | "fired at the target agent directly, in-process" (`InMemoryRunner`) |
-| "VACCINATOR reads the Agent Registry" | "VACCINATOR reads each target's declared tool scope" (`src/phage/targets.py`) |
+| **"Agent Registry" — in any form, for any reason. See the note below; this row is the strictest on the list.** | **"our own fleet manifest, checked into the repo"** (`src/phage/targets.py`) — the canonical phrasing. Use it verbatim wherever authorization or target selection comes up. |
 | "MACROPHAGE revokes its Agent Identity" | "MACROPHAGE revokes the specific tool the exploit used, from that target's live tool list" |
 | "findings/quarantine records go to Firestore" | Nothing — Firestore is unused. Verdicts live in session state for the run. |
 | "embedded with `text-embedding-005`" | "Memory Bank embeds the signature text server-side" — the API has no caller-supplied-vector path |
@@ -256,6 +286,28 @@ narrating any of them as live is a checkable false claim.
 | "MARROW runs on Agent Engine Runtime" | "MARROW runs locally; Agent Engine hosts Memory Bank" |
 | "recognition fires in milliseconds" | the number actually printed — ~2 seconds (see latency section) |
 | "traces from Agent Observability" | "real OpenTelemetry spans, exported locally" (`phage_traces.db`) |
+| "the fleet runs on Cloud Run" | "the target agents run locally, in-process" — only the Phase 1 `hello` probe was ever deployed to Cloud Run, and it is not in this demo |
+
+### Agent Registry — the one row that got stronger, not weaker
+
+`_TAILOR_SYSTEM` (`src/phage/vaccinator/engine.py`) still contains the words "our own
+Agent Registry". That is a known-inaccurate claim, knowingly retained: correcting it was
+measured to raise Gemini's mutation-refusal rate from one archetype to seven of seven and
+left the demo unrunnable, so it was reverted, and `fef89dd` added an in-code comment
+disclosing exactly that, cross-referenced to `docs/writeup.md`.
+
+**That disclosure is for someone reading the repo. It is not permission to say it on
+camera.** A written disclosure sitting next to the string is honest; the same words spoken
+over a demo, with no disclosure attached, are just a false claim about infrastructure this
+project does not have. The two are not equivalent, and the second is the one a judge
+hears. So: Agent Registry stays off the narration entirely.
+
+If a judge asks how PHAGE knows which agents it is allowed to attack, the answer is **"our
+own fleet manifest, checked into the repo"** — `src/phage/targets.py`, a static list of the
+four agents this project itself wrote and owns. That is the real authorization basis. The
+prompt's wording frames one model call and is not load-bearing for authorization; if the
+question goes deeper, say the prompt carries a legacy phrase that is documented as
+inaccurate in the write-up, and move on. Do not defend it.
 
 Everything the script *does* narrate — Gemini authoring, Gemma triage, the fire, the
 spans, tool revocation, Memory Bank recognition — is wired and demonstrated by the output
@@ -314,10 +366,32 @@ Run at least once before 2026-08-26. Completed 2026-08-22, twice — results bel
     1 of 7 archetypes refused mutation; demo archetype 'data-exfiltration' OK
   ```
 
-  **Worst case pass 1 = 72.8s** (A2), still the number to budget against: isolation
-  removes aborts but does not make a slow draw faster, and the fire path is unchanged.
-  Worst case within series C alone is 52.5s. Pass 2 is stable at 1.9–2.6s across all
-  twelve completed runs. The video is unedited, so a slow draw cannot be cut around.
+  **Series D, measured today (2026-08-23)** — three runs, each preceded by its own
+  `pretake_check.py` purge, each a separate process, stdout and stderr captured separately:
+
+  | Run | pass 1 | pass 2 | `recognize()` alone | refused archetypes | `[phage] llm attempt` lines on stderr |
+  |---|---|---|---|---|---|
+  | D1 | 68.7s | 2.0s | 2032 ms | `indirect-injection-readonly` | 0 |
+  | D2 | 36.2s | 2.4s | 2387 ms | `indirect-injection-readonly` | 0 |
+  | D3 | 27.8s | 2.1s | 2142 ms | none | 0 |
+
+  All three landed on `SUPPLIER-RELAY` / `data-exfiltration`; series D range is
+  **27.8–68.7s**.
+
+  **The spread is not rate limiting.** `generate_with_backoff` logs every retry to stderr
+  (`f93888a`), and across six runs measured today — series D plus three more — the count of
+  `[phage] llm attempt` lines was **zero, in every single run**. Not one backoff sleep
+  fired. So the 27.8s-to-68.7s range is per-call model latency plus how many tool calls the
+  target chooses to make, not throttling: D1 logged 272 spans / 88 `execute_tool` spans
+  against D3's 286 / 90 in well under half the time. There is no queue to wait out and
+  nothing to tune here — it is variance in the draw.
+
+  **Worst case pass 1 = 72.8s** (A2), still the number to budget against: it remains the
+  slowest pass 1 ever measured, isolation removes aborts but does not make a slow draw
+  faster, and the fire path is unchanged. Series C's worst is 52.5s and series D's is
+  68.7s — both under it, which is why the budget stands rather than moving. Pass 2 is
+  stable at 1.9–2.6s across all fifteen completed runs. The video is unedited, so a slow
+  draw cannot be cut around.
 - [x] **Isolated recognition latency measured.** ~1.9–2.6s warm, 6.3s cold. Narration must
   state this, not "milliseconds" — see the latency section under Scene 1, pass 2.
 
@@ -345,6 +419,28 @@ Run at least once before 2026-08-26. Completed 2026-08-22, twice — results bel
   this refusal and completed normally. `generate_payloads`' default is unchanged, so
   MARROW's contract — a refusal must never be silently absorbed into local-fallback — is
   untouched.
+
+  **Expect a `[refused]` line on camera — have this narration ready.** In today's
+  three-run baseline series it appeared in **two of the three runs**
+  (`indirect-injection-readonly` in runs 1 and 2, none in run 3). It is common enough that
+  planning for it is mandatory and pretending it will not happen is not an option.
+
+  When the line appears, say something close to:
+
+  > "That refusal line is the system working. VACCINATOR asks Gemini to adapt each
+  > template in the library, one call per archetype — and Gemini declined that one. PHAGE
+  > does not reword the request to get around a refusal; it records it, isolates it to that
+  > single archetype, and carries on with the rest. The archetype we are demonstrating is
+  > unaffected, which is what the next line confirms."
+
+  Then read the confirming line off the screen: `demo archetype 'data-exfiltration' OK`.
+
+  Why this framing is accurate and not spin: per-archetype isolation is a deliberate design
+  choice with a commit behind it, the no-classifier-dodging rule is a standing project red
+  line (`CLAUDE.md`), and the refused archetype genuinely falls back to its deterministic
+  local rendering rather than vanishing. Do **not** say refusals are rare, do not say this
+  never happens, and do not apologise for it — a defensive tool that reports a model
+  declining is more credible than one that never shows a rough edge.
 
   **A refusal on `data-exfiltration` itself still voids the take**, by design: it is the
   payload the scene is built on and its paraphrase is what pass 2 recognizes. That prints
@@ -387,9 +483,11 @@ under Scene 1, pass 2 for the numbers and the honest replacement framing.
 
 ## Runtime estimate vs. the 4:00 ceiling
 
-Twelve completed executions (tables in the Rehearsal checklist above): pass 1 ranges
-**25.6s to 72.8s**, pass 2 is stable at **1.9–2.6s**. The spread is pass 1 only — how many
-tools the target decides to call before it mails the data out. **Worst case: 72.8s.**
+Fifteen completed executions (tables in the Rehearsal checklist above): pass 1 ranges
+**25.6s to 72.8s**, pass 2 is stable at **1.9–2.6s**. The spread is pass 1 only — per-call
+model latency and how many tools the target decides to call before it mails the data out.
+It is **not** rate limiting: zero backoff-retry lines on stderr across all six runs
+measured today. **Worst case: 72.8s**, and that is the budget below.
 
 Budget against the **slow** run, since a take can't be re-cut around a long pass 1:
 - Preflight (purge command + console cutaway): ~20s

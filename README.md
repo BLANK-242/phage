@@ -105,7 +105,7 @@ exposure the gate at step 3 catches the mutated variant **before** it lands.
 | 5 | MARROW → SENTINEL | `marrow/agent.py:512` `ctx.run_node(SENTINEL())` |
 | — | SENTINEL → Gemma / Gemini | `sentinel/triage.py:189` (Gemma), `:230` (Gemini escalation only) |
 | 6 | MARROW → MACROPHAGE | `marrow/agent.py:549` `ctx.run_node(MACROPHAGE())` |
-| — | MACROPHAGE → fleet tool list | `macrophage/containment.py:104-108`, in-place slice assignment |
+| — | MACROPHAGE → fleet tool list | `macrophage/containment.py:145`, in-place slice assignment |
 | 7 | MARROW → ARCHIVIST `record()` | `marrow/agent.py:574` |
 
 ### What is not wired yet
@@ -122,7 +122,7 @@ not exist:
 | **Agent Registry / Agent Identity** | Body-self / self-recognition | **Not wired.** The fleet is a static Python list (`src/phage/targets.py`); the planned `registry.py` / `identity.py` / `gateway.py` shims do not exist. |
 | **Agent Observability** | Sensory nerves | **Local substitute.** Real OpenTelemetry spans, but exported to a local SQLite file, not to Cloud Observability. |
 | **Agent Engine Runtime** | Background metabolism | **Partly.** The Agent Engine instance exists and hosts Memory Bank, but MARROW runs locally via `InMemoryRunner` — it is not deployed to Agent Engine Runtime. |
-| **`text-embedding-005`** | Signature vectors | **Not called.** Declared in `config.py` but referenced nowhere else. Memory Bank embeds the signature text **server-side**; the API has no caller-supplied-vector path, so ARCHIVIST owns the text that gets embedded, never a vector. |
+| **`text-embedding-005`** | Signature vectors | **Not called, and no longer configured.** The constant was removed from `config.py`; no embedding model is declared or referenced anywhere. Memory Bank embeds the signature text **server-side**; the API has no caller-supplied-vector path, so ARCHIVIST owns the text that gets embedded, never a vector. |
 | **Firestore** | Operational state | **Not wired.** No code reads or writes it. |
 
 What *is* live: Gemini 3.5 Flash, Gemma 4 26B MaaS, Agent Engine, Memory Bank,
@@ -156,7 +156,7 @@ and the probe scripts). PHAGE therefore splits location by concern:
 | Concern | Location | Why |
 |---|---|---|
 | Model **inference** (Gemini, embeddings) | `global` | Only endpoint that serves Gemini 3.x; Google's recommended entry point for the newest models |
-| **Infrastructure & data** (Cloud Run, Firestore, Agent Engine, Memory Bank, Model Armor, Registry) | `us-central1` | Widest feature coverage; data residency and deployed services stay pinned; timing is measured server-side |
+| **Infrastructure & data** (Agent Engine, and the Memory Bank it hosts) | `us-central1` | Widest feature coverage; data residency and deployed services stay pinned; timing is measured server-side. This list is exhaustive, not illustrative — `INFRA_LOCATION` is read in exactly two places, both Agent Engine / Memory Bank |
 
 Data residency and deployed services stay regional; only the stateless model call
 fans out to global. Every client is constructed with an **explicit** location, so
@@ -238,11 +238,10 @@ project this was built on. Override only what differs for yours:
 | `GOOGLE_CLOUD_PROJECT` | `phage-dev` | Project id for every client |
 | `PHAGE_PROJECT_NUMBER` | `680106551305` | Used to build the Agent Engine resource name |
 | `PHAGE_AGENT_ENGINE_ID` | `1868793184486686720` | Memory Bank host — **change this for your project** |
-| `PHAGE_INFRA_LOCATION` | `us-central1` | Agent Engine, Memory Bank, Cloud Run, Firestore |
+| `PHAGE_INFRA_LOCATION` | `us-central1` | Agent Engine, and the Memory Bank it hosts |
 | `PHAGE_MODEL_LOCATION` | `global` | Model inference — see [Region policy](#region-policy--model-calls-vs-infrastructure) |
 | `PHAGE_GEMINI_MODEL` | `gemini-3.5-flash` | VACCINATOR authoring, SENTINEL escalation |
 | `PHAGE_GEMMA_MODEL` | `gemma-4-26b-a4b-it-maas` | SENTINEL first-pass triage |
-| `PHAGE_EMBEDDING_MODEL` | `text-embedding-005` | Declared only — **not read by any code path** |
 
 No service-account key files are needed or committed (`*.json` and `.env` are
 gitignored); auth is ADC locally and the service account in production.

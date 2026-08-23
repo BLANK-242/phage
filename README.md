@@ -97,7 +97,7 @@ exposure the gate at step 3 catches the mutated variant **before** it lands.
 | # | Edge | Call site |
 |---|---|---|
 | 1 | MARROW → VACCINATOR | `marrow/agent.py:373` `ctx.run_node(VACCINATOR())` |
-| 2 | VACCINATOR → Gemini | `vaccinator/engine.py:255-256` `genai.Client(**config.gemini_client_kwargs())`, `config.GEMINI_MODEL` |
+| 2 | VACCINATOR → Gemini | `vaccinator/engine.py:294-295` `genai.Client(**config.gemini_client_kwargs())`, `config.GEMINI_MODEL` |
 | 3 | MARROW → ARCHIVIST `recognize()` | `marrow/agent.py:425`, short-circuit `continue` at `:450` |
 | — | ARCHIVIST → Memory Bank | `archivist/memory.py:218` `memories.retrieve(similarity_search_params=...)` |
 | 4 | MARROW → target fleet | `marrow/agent.py:464` `fire_runner.run_async(...)` |

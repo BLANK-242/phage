@@ -1,9 +1,30 @@
-"""THROWAWAY probe — not a test, do not commit.
+"""Committed provenance for the identical-text distance floor cited in
+docs/writeup.md.
+
+This was originally written as a throwaway probe ("not a test, do not
+commit"). That is no longer the right call: the figure it produces is
+quoted in a submitted document, and a number in a graded artifact needs a
+committed measurement behind it rather than the memory of a run nobody can
+re-read. Its output is committed alongside it at
+scripts/probe_distance_output.txt.
+
+Measured 2026-08-23: byte-identical text returns distance
+0.3861411047948597 — the floor. Identical input does NOT return 0. The
+paraphrase and unrelated cases in the same run give 0.5288310799084316 and
+0.8747086721176833, which is the band RECOGNITION_DISTANCE_THRESHOLD (0.59)
+sits inside.
 
 Writes one signature via record(), then calls recognize() (the retrieve
 path) three times against it with different injection_text: byte-identical,
 a hand-written same-intent paraphrase, and an unrelated string. Prints each
-distance and the raw retrieved fact, then deletes the memory.
+distance and the raw retrieved fact, then deletes the memory. Both sides go
+through _signature_text under the production format F0, so the write-side
+`fact` and the query-side `search_query` are the same string in the
+byte-identical case.
+
+Run scripts/pretake_check.py before and after: a non-empty production scope
+would put a foreign nearest neighbour in front of this probe's own write and
+corrupt the measurement.
 
 Run: uv run python scripts/probe_distance.py
 """

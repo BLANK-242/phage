@@ -15,10 +15,10 @@ same 8-template library as the anchors, and 6 of 8 archetypes have anchors spann
 targets. A hard-negative query is therefore often a near-copy of **another anchor already
 in the pool**, so recognizing it is correct behaviour scored as an error.
 
-Corroboration: under F1, hard_negative min drops to 0.4091 — the minimum distance across
-the F1 hard negatives — **not** the identical-text floor, which measures
-0.3861411047948597 (`scripts/probe_distance_output.txt`) —
-while variants sit at 0.5863+, inverting AUC to 0.13. Only twin-matching explains that.
+Corroboration: under F1, hard_negative min drops to 0.4091 while variants sit at 0.5863+,
+inverting AUC to 0.13. Only twin-matching explains that. (0.4091 is the minimum across the
+F1 hard negatives, not the identical-text floor — that measures 0.3861411047948597; see
+`scripts/probe_distance_output.txt`.)
 
 Meanwhile variant top-1 identity accuracy under F0 is **1.00 (25/25)**: every variant's
 nearest neighbour is its own anchor. The retrieval mechanism works. The negative class

@@ -1,5 +1,9 @@
 # PHAGE — ARCHIVIST Mutation-Transform Recon (read-only)
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 ## Purpose
 
 Session 4 decided ARCHIVIST owns the deterministic mutation step, because

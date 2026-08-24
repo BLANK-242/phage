@@ -1,5 +1,9 @@
 # PHAGE — Claude Code brief: SENTINEL dispatch + trace-capture recon
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 Scope: **read-only.** No file edits, no commits, no new files.
 
 ## Before you start

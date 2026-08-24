@@ -1,5 +1,9 @@
 # PHAGE — MACROPHAGE Recon (read-only)
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 ## Purpose
 
 Before writing any MACROPHAGE code, resolve two open questions from the

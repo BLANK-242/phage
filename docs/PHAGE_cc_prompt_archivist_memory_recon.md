@@ -1,5 +1,9 @@
 # PHAGE — ARCHIVIST Memory Bank Feasibility Recon (read-only)
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 ## Purpose
 
 The master spec (`PHAGE_build_prompt.md:175-184`) specifies ARCHIVIST's

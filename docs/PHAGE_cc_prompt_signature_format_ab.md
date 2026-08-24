@@ -1,5 +1,9 @@
 # PHAGE — Claude Code Build Brief: Signature Format A/B
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 **Target path in repo:** `docs/PHAGE_cc_prompt_signature_format_ab.md`
 **Date:** 2026-08-22
 **Depends on:** `data/recognition_pairs.jsonl` (65 labeled records, commit `1c4ce83`),

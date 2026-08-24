@@ -1,5 +1,9 @@
 # PHAGE — Claude Code brief: MARROW recon pass (READ-ONLY)
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 ## Mode
 
 **READ-ONLY RECON.** This pass writes nothing.

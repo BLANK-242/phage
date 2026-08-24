@@ -1,5 +1,9 @@
 # PHAGE — Claude Code brief: VACCINATOR tailoring patch (checkpoint-1 outcome)
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 Scope: one commit. Refactor VACCINATOR's Gemini tailoring from **per-target batch** to **per-archetype isolation**, harden the paraphrase contract, and lock in a no-routing guardrail. Do **not** touch the ADK-agent wrapper, the other four agents, or the archetype library contents — that's the next prompt.
 
 These decisions came out of a review checkpoint. They're settled. Implement them; don't re-litigate. But **verify every claim below against the actual current source on disk** — the reasoning references `src/phage/vaccinator/engine.py` and `src/phage/llm.py` as they were at commit `49eb742`; if the working tree has drifted, adapt to what's actually there and say so in your summary. Do not reconstruct the engine from this brief.

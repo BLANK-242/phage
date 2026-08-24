@@ -1,5 +1,9 @@
 # PHAGE — Wire SENTINEL into MARROW (build)
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 ## Purpose
 
 Recon confirmed no live or persisted path exists for MACROPHAGE to consume

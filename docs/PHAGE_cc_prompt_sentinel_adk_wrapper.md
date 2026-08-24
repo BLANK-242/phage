@@ -1,5 +1,9 @@
 # PHAGE — Claude Code brief: SENTINEL ADK wrapper (Stage 2)
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 Scope: **one commit.** Wrap the already-built triage logic (`sentinel/triage.py`, commit `6c32577`) in ADK's `BaseAgent` contract — same shape as VACCINATOR's own `adk_agent.py`. No MARROW integration yet; that's Stage 3, its own commit, same as VACCINATOR's staged build.
 
 ## Before you start

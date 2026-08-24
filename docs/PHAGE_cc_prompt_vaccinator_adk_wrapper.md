@@ -1,5 +1,9 @@
 # PHAGE — Claude Code brief: VACCINATOR ADK-agent wrapper
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 Scope: **one commit.** Wrap the existing deterministic `generate_payloads` engine in a
 single ADK agent that receives a target's `tool_scope` from session state, runs the engine,
 and yields the payloads back into session state. **Nothing else** — no registry, no

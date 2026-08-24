@@ -1,5 +1,9 @@
 # PHAGE — Claude Code Build Brief: Leave-One-Archetype-Out Re-evaluation
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 **Target path in repo:** `docs/PHAGE_cc_prompt_loao_eval.md`
 **Date:** 2026-08-22
 **Depends on:** `data/recognition_pairs.jsonl` (commit `1c4ce83`),
@@ -11,7 +15,9 @@ same 8-template library as the anchors, and 6 of 8 archetypes have anchors spann
 targets. A hard-negative query is therefore often a near-copy of **another anchor already
 in the pool**, so recognizing it is correct behaviour scored as an error.
 
-Corroboration: under F1, hard_negative min drops to 0.4091 — the identical-text floor —
+Corroboration: under F1, hard_negative min drops to 0.4091 — the minimum distance across
+the F1 hard negatives — **not** the identical-text floor, which measures
+0.3861411047948597 (`scripts/probe_distance_output.txt`) —
 while variants sit at 0.5863+, inverting AUC to 0.13. Only twin-matching explains that.
 
 Meanwhile variant top-1 identity accuracy under F0 is **1.00 (25/25)**: every variant's

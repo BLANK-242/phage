@@ -1,5 +1,9 @@
 # PHAGE — Claude Code brief: MARROW fleet iteration
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 Scope: **one commit.** Replace MARROW's single hardcoded `_DEMO_TARGET` seed with a loop over the four registered SAIL targets. No changes to VACCINATOR, SENTINEL/MACROPHAGE/ARCHIVIST (unbuilt), CLAUDE.md, or `.claude/settings.json`.
 
 ## Before you write anything

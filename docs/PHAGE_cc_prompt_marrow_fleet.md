@@ -1,5 +1,9 @@
 # PHAGE — Claude Code brief: MARROW fleet iteration (build)
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 ## Scope
 
 **One commit.** Replace MARROW's single hardcoded `_DEMO_TARGET` with a

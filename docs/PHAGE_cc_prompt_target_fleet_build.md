@@ -1,5 +1,9 @@
 # PHAGE — Claude Code brief: SAIL target fleet (Phase 2a)
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 Scope: **one commit.** Build the four target agents the spec always called for building before VACCINATOR — SUPPLIER-RELAY, QUOTE-BOT, ORDER-INTAKE, STOCK-KEEPER. This step was skipped when VACCINATOR jumped the queue for the Phase 1.5 payload-viability gate; it's due now, not new scope.
 
 ## Before you start

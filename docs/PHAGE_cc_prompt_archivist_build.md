@@ -1,5 +1,9 @@
 # PHAGE — Claude Code Build Brief: ARCHIVIST
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 **Target path in repo:** `docs/PHAGE_cc_prompt_archivist_build.md`
 **Date:** 2026-08-21
 **Depends on:** `docs/PHAGE_cc_prompt_archivist_memory_recon.md`, `docs/PHAGE_cc_prompt_archivist_mutation_recon.md`

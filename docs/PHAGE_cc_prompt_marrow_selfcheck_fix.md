@@ -1,5 +1,9 @@
 # PHAGE — Fix MARROW Self-Check (build)
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 ## Purpose
 
 Wiring SENTINEL into MARROW's fire loop just exposed a pre-existing

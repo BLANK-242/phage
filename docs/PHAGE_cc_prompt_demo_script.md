@@ -1,5 +1,9 @@
 # PHAGE — Claude Code Build Brief: Finalize the Demo Script
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 **Target path in repo:** `docs/PHAGE_cc_prompt_demo_script.md`
 **Date:** 2026-08-22
 **Revises:** `docs/demo_script.md` (existing first draft, 4 embedded open decisions)

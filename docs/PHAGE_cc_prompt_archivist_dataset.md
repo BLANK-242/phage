@@ -1,5 +1,9 @@
 # PHAGE — Claude Code Build Brief: Recognition Dataset & Threshold Tuning
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 **Target path in repo:** `docs/PHAGE_cc_prompt_archivist_dataset.md`
 **Date:** 2026-08-22
 **Depends on:** ARCHIVIST build (commits `e6b01dc`, `54164fd`, `91fd841`, `c151548`) plus the

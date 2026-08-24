@@ -1,5 +1,9 @@
 # PHAGE — Claude Code brief: MARROW fire-and-capture (fleet loop, extended)
 
+> **Build-history record.** Written during construction and left unedited.
+> Figures and `file:line` citations here may be superseded. `docs/writeup.md`
+> and `README.md` are the current, audited statements.
+
 Scope: **one commit.** Extend MARROW's existing fleet loop to fire each generated payload at its target and capture the resulting trace locally. No SENTINEL logic — this commit only produces real, queryable trace data for SENTINEL to consume next.
 
 ## Before you start

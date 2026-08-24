@@ -14,7 +14,7 @@ primitive maps to an immune function.
 
 ---
 
-## The five agents
+## The five components
 
 | Agent | Immune role | What it does | Form |
 |---|---|---|---|
@@ -24,10 +24,14 @@ primitive maps to an immune function.
 | **MACROPHAGE** | Containment | On a landed verdict, revokes the **specific tool the exploit used** from that target's live tool list, in place and process-wide. | ADK `BaseAgent` |
 | **ARCHIVIST** | Immunological memory | Writes encounter signatures to Memory Bank and serves recognition lookups. Recognition is **semantic** — vector distance under a tuned threshold, not exact-match — so the *second, mutated* attack is caught **before it is fired**. | Plain functions, not an ADK agent |
 
-ARCHIVIST is deliberately **not** an ADK agent: MARROW calls `recognize()` and
-`record()` directly, in-process. So the repo is **four ADK agents plus one
-library module** — described here by what each does rather than by an agent
-count the code would contradict.
+ARCHIVIST is deliberately **not** an ADK agent: MARROW calls `recognize()`
+and `record()` directly, in-process. Neither is MARROW — it subclasses
+`Node` from `google.adk.workflow` (`src/phage/marrow/agent.py:309`),
+because orchestrating a fire loop is a workflow concern, not a reasoning
+one. So the shipped structure is **three ADK agents — VACCINATOR, SENTINEL
+and MACROPHAGE, each a `BaseAgent` — driven by one ADK workflow node, plus
+one plain-function library module** — described here by what each does
+rather than by an agent count the code would contradict.
 
 ### Architecture
 

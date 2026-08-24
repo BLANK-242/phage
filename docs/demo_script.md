@@ -256,14 +256,22 @@ defensible if a judge asks.
    `data-exfiltration` — the first candidate in `scripts/run_demo_scene.py`'s ordered list
    — landed on the first rehearsal attempt and again on the second run. No re-search
    needed; the placeholder is resolved to this pair for the take.
-5. **Agent count.** The repo is four ADK agents — MARROW (`src/phage/marrow/agent.py`),
-   VACCINATOR (`src/phage/vaccinator/adk_agent.py`), SENTINEL
-   (`src/phage/sentinel/adk_agent.py`), MACROPHAGE (`src/phage/macrophage/adk_agent.py`) —
-   plus ARCHIVIST, a plain-function library module MARROW calls directly (no ADK
-   `BaseAgent` wrapper — confirmed in `src/phage/archivist/memory.py`'s own docstring).
-   Narration wording: **"four ADK agents, plus ARCHIVIST — the semantic memory library
-   that gives the fleet recognition."** Describe ARCHIVIST by what it does, not folded
-   into an agent count the repo doesn't support.
+5. **Component structure.** The repo is three ADK agents — VACCINATOR
+   (`src/phage/vaccinator/adk_agent.py:101`), SENTINEL
+   (`src/phage/sentinel/adk_agent.py:93`), MACROPHAGE
+   (`src/phage/macrophage/adk_agent.py:115`), each subclassing `BaseAgent` —
+   orchestrated by MARROW, which subclasses `Node` from
+   `google.adk.workflow` (`src/phage/marrow/agent.py:309`), plus ARCHIVIST, a
+   plain-function library module MARROW calls directly. ARCHIVIST has no ADK
+   dependency at all: `grep -rn "google.adk" src/phage/archivist/` returns
+   nothing.
+
+   Narration wording: **"MARROW is an ADK workflow node driving three ADK
+   agents — VACCINATOR, SENTINEL, MACROPHAGE. ARCHIVIST is the fifth
+   component and deliberately not an agent: it's the semantic memory library
+   that gives the fleet recognition."** Never say "four ADK agents" on camera
+   — MARROW is a `Node`, not a `BaseAgent`, and the count is grep-checkable
+   in seconds.
 
 ---
 

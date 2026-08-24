@@ -310,7 +310,9 @@ and the per-archetype table are in `docs/writeup.md`.
 camera.** A written disclosure sitting next to the string is honest; the same words spoken
 over a demo, with no disclosure attached, are just a false claim about infrastructure this
 project does not have. The two are not equivalent, and the second is the one a judge
-hears. So: Agent Registry stays off the narration entirely.
+hears. So: the phrase "Agent Registry" stays off the narration entirely. The measurement
+itself is now spoken — see the narration wording below — because it ships with a committed
+script and result file, so it no longer arrives without its disclosure.
 
 If a judge asks how PHAGE knows which agents it is allowed to attack, the answer is **"our
 own fleet manifest, checked into the repo"** — `src/phage/targets.py`, a static list of the
@@ -318,6 +320,15 @@ four agents this project itself wrote and owns. That is the real authorization b
 prompt's wording frames one model call and is not load-bearing for authorization; if the
 question goes deeper, say the prompt carries a legacy phrase that is documented as
 inaccurate in the write-up, and move on. Do not defend it.
+
+Narration wording (the refusal measurement): **"Describe our targets concretely in the
+tailoring prompt — a checked-in manifest of our agents and their exact tools — and Gemini
+refuses on five of seven archetypes, ten times out of ten. Describe them vaguely and it
+complies every time. One clause, same payload, same model. We ship the vaguer wording, and
+we disclose that in the code and the write-up."** Say the measurement, never the product
+name. `data/refusal_rate_result.json` backs every number in that line;
+`scripts/refusal_rate_experiment.py` reproduces it. If a judge asks which wording, the
+answer is the fleet-manifest phrasing — `src/phage/targets.py` — not the retained string.
 
 Everything the script *does* narrate — Gemini authoring, Gemma triage, the fire, the
 spans, tool revocation, Memory Bank recognition — is wired and demonstrated by the output

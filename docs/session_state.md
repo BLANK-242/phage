@@ -21,7 +21,7 @@ Date: 2026-08-10. Branch: `main`.
 | 1.5 — Payload viability gate | ✅ (fired) | `scripts/probe_payload_gen_output.txt` — **refusal** |
 | 1.5b — Refusal-surface diagnostic | ✅ | `scripts/probe_payload_matrix_output.txt` |
 | 2 core — Payload engine | ✅ built, **not integrated** | `src/phage/vaccinator/`, `scripts/vaccinate_demo.py` |
-| 2 rest — VACCINATOR agent, registry/gateway shims | ⏳ **held for this review** | — |
+| 2 rest — VACCINATOR agent, registry/gateway shims | ✅ agent built; shims never were — see §7 | — |
 
 **Region policy (Phase 1):** Gemini 3.x is served only from the Vertex `global`
 endpoint (`gemini-3.5-flash @ us-central1 → 404`, `@ global → 200`). So model

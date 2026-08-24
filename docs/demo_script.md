@@ -300,9 +300,11 @@ narrating any of them as live is a checkable false claim.
 
 `_TAILOR_SYSTEM` (`src/phage/vaccinator/engine.py`) still contains the words "our own
 Agent Registry". That is a known-inaccurate claim, knowingly retained: correcting it was
-measured to raise Gemini's mutation-refusal rate from one archetype to seven of seven and
+measured to flip five of seven archetypes from never refusing to always refusing and
 left the demo unrunnable, so it was reverted, and `fef89dd` added an in-code comment
-disclosing exactly that, cross-referenced to `docs/writeup.md`.
+disclosing exactly that, cross-referenced to `docs/writeup.md`. Raw result:
+`data/refusal_rate_result.json` (140 logical calls, 10 repetitions per cell); the method
+and the per-archetype table are in `docs/writeup.md`.
 
 **That disclosure is for someone reading the repo. It is not permission to say it on
 camera.** A written disclosure sitting next to the string is honest; the same words spoken

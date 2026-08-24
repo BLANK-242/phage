@@ -16,7 +16,7 @@ primitive maps to an immune function.
 
 ## The five components
 
-| Agent | Immune role | What it does | Form |
+| Component | Immune role | What it does | Form |
 |---|---|---|---|
 | **MARROW** | Bone marrow / metabolism | Root orchestrator. Iterates the target fleet, drives the fire loop, routes findings. Holds no domain logic. | ADK `Workflow.Node` |
 | **VACCINATOR** | Vaccine synthesis | Inspects each target's **declared tool scopes** and uses Gemini to author injection payloads **tailored to those specific tools**, plus a paraphrase mutation. Not a static payload list — this is the core innovation. | ADK `BaseAgent` |

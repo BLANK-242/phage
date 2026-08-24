@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PHAGE — evaluation &amp; trace viewer</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>PHAGE</h1>
+  <p class="sub">Read-only viewer. Every figure below is read back from a committed
+  artifact — nothing on this page is recomputed at load.</p>
+  <nav class="tabs">
+    <button class="tab active" data-view="eval">Evaluation</button>
+    <button class="tab" data-view="trace">Trace replay</button>
+  </nav>
+</header>
+
+<main>
+
+<!-- ===================== EVALUATION VIEW ===================== -->
+<section id="view-eval" class="view">
+
+  <div class="grid">
+
+    <section class="panel">
+      <h2>ROC — leave-one-archetype-out</h2>
+      <div id="roc"></div>
+      <div class="figures">
+        <div class="fig"><span class="fig-label">AUC</span><span id="auc" class="fig-value">—</span></div>
+        <div class="fig"><span class="fig-label">TPR @ 0.59</span><span id="tpr" class="fig-value">—</span></div>
+        <div class="fig"><span class="fig-label">FPR @ 0.59</span><span id="fpr" class="fig-value">—</span></div>
+      </div>
+      <p class="caption">Rendered from <code>data/loao_eval_result.json</code> —
+      pooled positive and negative distance arrays. AUC is the stored figure, not
+      recomputed here.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Distance distributions</h2>
+      <div id="hist"></div>
+      <p class="caption">Rendered from <code>data/tune_threshold_result.json</code> —
+      <code>variant_sorted</code>, <code>hard_negative_sorted</code>,
+      <code>cross_target_sorted</code>.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Probe distances</h2>
+      <div id="probe" class="probe-strip"></div>
+      <p class="caption">Rendered from <code>scripts/probe_distance_output.txt</code>.
+      The identical-text floor is stable across runs and shown at full precision; the
+      other two drift in trailing digits and are shown to three decimals.</p>
+    </section>
+
+    <section class="panel">
+      <h2>LOAO fold structure</h2>
+      <div id="folds"></div>
+      <p class="caption">Rendered from <code>data/loao_eval_result.json</code> —
+      <code>fold_results</code>.</p>
+    </section>
+
+  </div>
+</section>
+
+<!-- ===================== TRACE VIEW ===================== -->
+<section id="view-trace" class="view hidden">
+  <div class="trace-layout">
+    <aside class="picker">
+      <h2>Sessions</h2>
+      <p id="picker-note" class="caption"></p>
+      <div id="session-list"></div>
+    </aside>
+    <section class="timeline-wrap">
+      <h2 id="timeline-title">Select a session</h2>
+      <div id="timeline"></div>
+      <p class="caption">Rendered from <code>phage_traces.db</code> — spans ordered by
+      start time, indented by parent depth. Tool arguments and responses are shown as
+      recorded.</p>
+    </section>
+  </div>
+</section>
+
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

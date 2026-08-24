@@ -30,3 +30,4 @@ scripts/vaccinate_demo_output.txt
 !.claude/settings.json
 
 phage_traces*.db
+docs/PHAGE_cc_prompt_*.md

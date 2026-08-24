@@ -321,14 +321,17 @@ prompt's wording frames one model call and is not load-bearing for authorization
 question goes deeper, say the prompt carries a legacy phrase that is documented as
 inaccurate in the write-up, and move on. Do not defend it.
 
-Narration wording (the refusal measurement): **"Describe our targets concretely in the
-tailoring prompt — a checked-in manifest of our agents and their exact tools — and Gemini
-refuses on five of seven archetypes, ten times out of ten. Describe them vaguely and it
-complies every time. One clause, same payload, same model. We ship the vaguer wording, and
-we disclose that in the code and the write-up."** Say the measurement, never the product
-name. `data/refusal_rate_result.json` backs every number in that line;
+Narration wording (the refusal measurement): **"One thing we measured about our own
+tooling: describe our targets concretely in the tailoring prompt and Gemini refuses on five
+of seven archetypes, ten times out of ten. Describe them vaguely and it complies every
+time. We ship the vaguer wording, and we disclose it."** Say the measurement, never the
+product name. `data/refusal_rate_result.json` backs every number in that line;
 `scripts/refusal_rate_experiment.py` reproduces it. If a judge asks which wording, the
 answer is the fleet-manifest phrasing — `src/phage/targets.py` — not the retained string.
+
+**Placement.** This line is said at the end of the scene-setting narration, immediately
+before Scene 1 pass 1. If a take runs long, the cut comes from the close — not from this
+line.
 
 Everything the script *does* narrate — Gemini authoring, Gemma triage, the fire, the
 spans, tool revocation, Memory Bank recognition — is wired and demonstrated by the output

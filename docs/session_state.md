@@ -25,8 +25,8 @@ Date: 2026-08-10. Branch: `main`.
 
 **Region policy (Phase 1):** Gemini 3.x is served only from the Vertex `global`
 endpoint (`gemini-3.5-flash @ us-central1 → 404`, `@ global → 200`). So model
-inference → `global`; all infra/data (Cloud Run, Firestore, Agent Engine, Memory
-Bank, Model Armor, Registry) → `us-central1`. Every client uses an explicit
+inference → `global`; all infra/data (Agent Engine, and the Memory Bank it
+hosts) → `us-central1`. Every client uses an explicit
 location (`src/phage/config.py`). Phase 1 service (private):
 `https://phage-hello-680106551305.us-central1.run.app`.
 
@@ -65,6 +65,12 @@ Phase 1.5b then characterized the surface (6 calls, default safety settings):
 2. Sibling models comply even with the lower-ask "rephrase this" task.
 3. We never need to jailbreak: the engine can *provide* the technique and ask
    only for parameterization/paraphrase.
+
+> **Superseded on takeaway 1.** A later controlled measurement held the model,
+> the output register and the ask fixed and varied one clause of the
+> authorization framing, moving `MutationRefused` from one archetype to seven
+> of seven across three runs. Framing concreteness does drive this refusal.
+> See the refusal-asymmetry section of `docs/writeup.md`.
 
 ---
 
@@ -171,8 +177,15 @@ and one refusal collapses the per-target batch. **SELF-CHECK PASS in both
 2. **Model routing.** Keep everything on `gemini-3.5-flash` (+ local fallback),
    or route exfil-class archetypes to `gemini-3.5-flash-lite`/`3.6-flash` which
    the diagnostic showed comply. Trade-off: robustness vs. more model surface.
-   (The extra-model bonus is already earned via Gemma / `text-embedding-005` /
-   Chirp, so this would be for reliability, not points.)
+   (Superseded: the model-variety bonus rests on Gemma alone —
+   `text-embedding-005` and Chirp were named in the original design and never
+   wired. See README.md's scope table.)
+
+> **Rejected.** Routing refusal-prone archetypes to a more compliant sibling
+> model became an explicit red line: a single resolved model serves every
+> archetype, with local fallback on refusal and no refusal-defeating routing
+> (`src/phage/vaccinator/engine.py`). See `docs/writeup.md`.
+
 3. **Paraphrases → ARCHIVIST.** The `paraphrase` field is the natural source of
    the Phase 3 "mutated payload on second pass" — confirm that coupling.
 4. **Firing path.** Where payloads leave (Agent Gateway) and Model Armor
@@ -180,7 +193,13 @@ and one refusal collapses the per-target batch. **SELF-CHECK PASS in both
 
 ---
 
-## 7. Deferred (explicitly NOT done)
+## 7. Deferred as of 2026-08-10
+
+> **Most of this was subsequently built.** VACCINATOR's ADK agent, MARROW,
+> SENTINEL, MACROPHAGE and ARCHIVIST are all built and wired. Only the
+> `registry.py` / `identity.py` / `gateway.py` interface shims and the Agent
+> Registry read remain unbuilt, deliberately — the fleet is the static
+> manifest in `src/phage/targets.py`. See `README.md`'s scope table.
 
 - VACCINATOR ADK agent wrapping the engine + Agent Registry read of live tool scopes.
 - Interface shims: `registry.py` / `identity.py` / `gateway.py` (Phase 2b).

@@ -22,8 +22,11 @@ Pooled leave-one-archetype-out results, at the tuned threshold:
 |---|---|
 | True positive rate | **1.00** (25/25 distinct variants) |
 | False positive rate | **0.1833** (11/60 held-out queries) |
-| Separation (AUC, Mann–Whitney) | 0.97 |
+| Separation (AUC, Mann–Whitney) | 0.9727 |
 | Top-1 identity accuracy | 100% (25/25) — every real mutation's nearest match is its own original encounter, not a different one |
+
+Every figure in this table is backed by a committed artifact; see the evidence
+table in `README.md` for the file and field behind each one.
 
 TPR is reported at n=25, not at the 175 raw fold-level measurements the evaluation produces. Each of the 25 variants is re-queried in up to seven folds, but its distance is identical every time — it always matches its own anchor's text, which holding out an unrelated archetype never changes. Counting each repeat as an independent trial would overstate the sample; 25 is the number of genuinely distinct measurements.
 

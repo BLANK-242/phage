@@ -332,6 +332,21 @@ Editor grant from default service accounts.
 threshold **0.59**, **AUC 0.9727**, **TPR 1.00**, **FPR 0.1833** (11/60 held-out
 queries).
 
+**Every figure above is checked against a committed artifact.** Nothing here
+is recomputed at read time:
+
+| Figure | Value | Backing artifact |
+|---|---|---|
+| Separation (AUC) | 0.9727 | `data/loao_eval_result.json` → `auc` |
+| True positive rate | 1.00 (n=25) | `data/loao_eval_result.json` → `fold_results`, `pooled_positives_sorted` |
+| False positive rate | 0.1833 (11/60) | `data/loao_eval_result.json` → `pooled_negatives_sorted`, `fpr_at_tpr_1.00` |
+| Recognition threshold | 0.59 | `data/tune_threshold_result.json` → `sweep_result` |
+| Per-class distance distributions | 25 / 25 / 10 | `data/tune_threshold_result.json` → `variant_sorted`, `hard_negative_sorted`, `cross_target_sorted` |
+| Contamination check | 25 queries | `data/loao_verify_result.json` → `results` |
+| Signature format choice | F0 | `data/ab_test_signature_formats_result.json` |
+| Labelled dataset | 65 records | `data/recognition_pairs.jsonl` |
+| Identical-text distance floor | 0.3861411047948597 | `scripts/probe_distance_output.txt` |
+
 **Phase 1 live service (private):** `https://phage-hello-680106551305.us-central1.run.app`
 
 ---

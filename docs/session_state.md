@@ -1,4 +1,8 @@
 # PHAGE — Session State (architecture review)
+> **Dated architecture review — 2026-08-10.** A point-in-time snapshot written
+> during construction and left unedited. Component structure, figures, open
+> questions and deferred items described below are superseded.
+> `docs/writeup.md` and `README.md` are the current, audited statements.
 
 Snapshot for review **before** the templated-mutation engine is wired into a
 VACCINATOR agent. Covers the engine design, archetype structure, the diagnostic

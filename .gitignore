@@ -5,7 +5,10 @@ __pycache__/
 *.json
 !package.json
 .DS_Store
-
+# Evaluation artifacts backing the reported figures — these must ship so a
+# fresh clone can verify AUC/TPR/FPR and the tuned threshold. The blanket
+# *.json above was aimed at local state, not committed evidence.
+!data/*.json
 # Python build / tooling artifacts (uv.lock IS committed — do not ignore it)
 *.egg-info/
 build/

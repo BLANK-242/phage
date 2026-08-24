@@ -113,9 +113,13 @@ function drawRoc(loao) {
   document.getElementById("auc").textContent =
     loao.auc !== undefined ? Number(loao.auc).toFixed(4) : "—";
   const at = (loao["fpr_at_tpr_1.00"] || []);
-  document.getElementById("tpr").textContent = "1.00";
+  document.getElementById("tpr").textContent =
+    at.length >= 3 ? Number(at[1]).toFixed(2) : "unavailable";
+  // fpr_at_tpr_1.00 is [threshold, TPR, FPR] — index 2 is the false positive
+  // rate. at[1] is the TPR, which is why this stat read 1.0000 while the ROC
+  // callout above read 0.1833 off the same file.
   document.getElementById("fpr").textContent =
-    at.length >= 2 ? Number(at[1]).toFixed(4) : (fp / neg.length).toFixed(4);
+    at.length >= 3 ? Number(at[2]).toFixed(4) : "unavailable";
 }
 
 /* ---------------- histograms ---------------- */

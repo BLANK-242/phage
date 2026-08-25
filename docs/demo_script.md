@@ -524,7 +524,8 @@ Budget against the **slow** run, since a take can't be re-cut around a long pass
 
 **Total estimate: ~2:50** against the slow run (~2:15 against the fast one), leaving over a
 minute of slack under the 4:00 ceiling either way. If a take draws an even longer pass 1,
-the cut point is the scene-setting narration, not the close.
+the cut point is the close, not the scene-setting narration — scene-setting carries the
+refusal measurement, and that line is the one thing in the take that must not be dropped.
 
 ---
 

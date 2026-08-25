@@ -30,6 +30,10 @@ scripts/vaccinate_demo_output.txt
 !.claude/settings.json
 
 phage_traces*.db
+# The public dashboard's trace fixture IS committed: it is the redacted copy the
+# Cloud Run service serves, and without it the deployed image has no trace data.
+# The rule above matches it by name, so it needs an explicit exemption.
+!dashboard/data/phage_traces_demo.db
 docs/PHAGE_cc_prompt_*.md
 .env.*
 !.env.example

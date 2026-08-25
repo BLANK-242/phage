@@ -1,0 +1,34 @@
+# Explicit upload manifest for `gcloud run deploy --source .`
+#
+# This file has to exist and has to be explicit. Absent one, gcloud SYNTHESIZES a
+# .gcloudignore from .gitignore — and .gitignore's `phage_traces*.db` rule would
+# silently drop dashboard/data/phage_traces_demo.db from the upload. The image
+# would then build without its trace fixture and the trace tab would 404 in
+# production while working perfectly on this machine.
+#
+# Do NOT replace this with `#!include:.gitignore`.
+#
+# Verify after any edit:  gcloud meta list-files-for-upload .
+
+.git/
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+.pytest_cache/
+
+# The UNSANITIZED live span databases. These still name the real customer —
+# Phase 1 redacted a *copy*, not these. The Dockerfile never COPYs them, but
+# `--source .` uploads the whole context to a Cloud Build staging bucket, so
+# they are kept out of the upload rather than merely out of the image.
+#
+# The leading slash anchors each pattern to this directory, so the sanitized
+# dashboard/data/phage_traces_demo.db is untouched by them.
+/phage_traces.db
+/phage_traces_sentinel_agent.db
+/phage_traces_sentinel_selfcheck.db
+
+# 3.3 MB ADK reference dump — read material, no build dependency.
+docs/reference/adk-llms-full.txt

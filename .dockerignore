@@ -1,0 +1,24 @@
+# Mirrors .gcloudignore.
+#
+# Docker matches each pattern against the full path from the context root, so a
+# bare `phage_traces.db` is already anchored to the root and cannot touch
+# dashboard/data/phage_traces_demo.db. Nested matches need an explicit `**/`,
+# which is why the __pycache__ and *.pyc rules are spelled differently here than
+# in the gitignore-syntax .gcloudignore.
+
+.git
+.venv
+**/__pycache__
+**/*.pyc
+.env
+.env.*
+!.env.example
+.pytest_cache
+
+# The unsanitized live span databases — see .gcloudignore for why these are
+# excluded from the context rather than merely left out of the image.
+phage_traces.db
+phage_traces_sentinel_agent.db
+phage_traces_sentinel_selfcheck.db
+
+docs/reference/adk-llms-full.txt

@@ -14,6 +14,7 @@ Run:  uv run uvicorn dashboard.app:app --port 8000
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 from pathlib import Path
@@ -31,7 +32,10 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 LOAO_PATH = REPO_ROOT / "data" / "loao_eval_result.json"
 TUNE_PATH = REPO_ROOT / "data" / "tune_threshold_result.json"
 PROBE_PATH = REPO_ROOT / "scripts" / "probe_distance_output.txt"
-TRACE_DB_PATH = REPO_ROOT / "phage_traces.db"
+# `PHAGE_TRACES_DB` overrides where the span database is read from. The container
+# image sets it to a sanitized fixture that carries the same 1,107 spans with the
+# customer's name redacted; unset — the local case — it resolves exactly as before.
+TRACE_DB_PATH = Path(os.environ.get("PHAGE_TRACES_DB") or REPO_ROOT / "phage_traces.db")
 
 app = FastAPI(title="PHAGE dashboard", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

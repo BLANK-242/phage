@@ -31,3 +31,5 @@ scripts/vaccinate_demo_output.txt
 
 phage_traces*.db
 docs/PHAGE_cc_prompt_*.md
+.env.*
+!.env.example

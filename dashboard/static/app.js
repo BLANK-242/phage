@@ -90,6 +90,7 @@ function drawRoc(loao) {
     "stroke-linejoin": "round",
   }));
 
+  const at = (loao["fpr_at_tpr_1.00"] || []);
   // Operating point at the adopted threshold.
   const tp = pos.filter((d) => d < THRESHOLD).length;
   const fp = neg.filter((d) => d < THRESHOLD).length;
@@ -100,7 +101,9 @@ function drawRoc(loao) {
   svg.appendChild(el("text", { x: lx, y: Y(oy) + 1, fill: "#F0F4F8", "font-size": 13 },
                     `threshold ${THRESHOLD}`));
   svg.appendChild(el("text", { x: lx, y: Y(oy) + 17, fill: "#9FB3C8", "font-size": 13 },
-                    `TPR ${oy.toFixed(2)} · FPR ${ox.toFixed(4)}`));
+                    at.length >= 3
+                      ? `TPR ${Number(at[1]).toFixed(2)} · FPR ${Number(at[2]).toFixed(4)}`
+                      : "TPR unavailable · FPR unavailable"));
 
   svg.appendChild(el("text", { x: M.l + iw / 2, y: H - 8, "text-anchor": "middle",
                                fill: "#9FB3C8", "font-size": 13 }, "false positive rate"));
@@ -112,7 +115,6 @@ function drawRoc(loao) {
   // Stored figures, rendered as stored — not recomputed for display.
   document.getElementById("auc").textContent =
     loao.auc !== undefined ? Number(loao.auc).toFixed(4) : "—";
-  const at = (loao["fpr_at_tpr_1.00"] || []);
   document.getElementById("tpr").textContent =
     at.length >= 3 ? Number(at[1]).toFixed(2) : "unavailable";
   // fpr_at_tpr_1.00 is [threshold, TPR, FPR] — index 2 is the false positive

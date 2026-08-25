@@ -515,15 +515,16 @@ measured today. **Worst case: 72.8s**, and that is the budget below.
 
 Budget against the **slow** run, since a take can't be re-cut around a long pass 1:
 - Preflight (purge command + console cutaway): ~20s
-- Scene-setting narration (target, tool scope, what's about to happen): ~30s
+- Scene-setting narration (target, tool scope, what's about to happen, refusal
+  measurement): ~48s (estimated, not measured)
 - Pass 1 execution + narration over real-time output: ~75s (72.8s of real execution,
   narrated rather than silently watched)
 - Pass 2 execution + narration: ~25s (2.6s real execution — mostly narration of the
   distance / threshold / latency lines)
 - Close (recap, threshold/evaluation callback): ~20s
 
-**Total estimate: ~2:50** against the slow run (~2:15 against the fast one), leaving over a
-minute of slack under the 4:00 ceiling either way. If a take draws an even longer pass 1,
+**Total estimate: ~3:08** against the slow run (~2:33 against the fast one), leaving about
+52 seconds of slack under the 4:00 ceiling on the slow run. If a take draws an even longer pass 1,
 the cut point is the close, not the scene-setting narration — scene-setting carries the
 refusal measurement, and that line is the one thing in the take that must not be dropped.
 

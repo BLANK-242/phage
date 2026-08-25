@@ -12,6 +12,11 @@ primitive maps to an immune function.
 > Google Cloud **All Things Agentic Hackathon** — *Fortified Enterprise Fleet*.
 > Built entirely within the submission window with AI assistance (permitted).
 
+**Live dashboard → <https://phage-dashboard-680106551305.us-central1.run.app>**
+The read-only evaluation and trace viewer, open to anyone — no Google account,
+no sign-in. It serves the committed evaluation artifacts and a redacted copy of
+the span database; it fires no agent, calls no model, and writes nothing.
+
 ---
 
 ## The five components

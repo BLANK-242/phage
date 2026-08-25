@@ -43,28 +43,30 @@ not have.
 
 ## What a fresh clone will and will not have
 
-Three of the five artifacts are matched by `.gitignore` and are therefore **not in
-the repository**. Cloning and running the dashboard will show errors in those
-panels until the relevant script is run locally.
+Four of the five artifacts are committed. Only `phage_traces.db` is absent, so a
+fresh clone renders the whole evaluation view and shows an explanatory message in
+place of the trace view.
 
 | Artifact | In the repo? | Why |
 |---|---|---|
 | `data/recognition_pairs.jsonl` | **tracked** | committed dataset |
 | `scripts/probe_distance_output.txt` | **tracked** | committed probe evidence |
-| `data/loao_eval_result.json` | **not tracked** | ignored by `.gitignore:5` (`*.json`) |
-| `data/tune_threshold_result.json` | **not tracked** | ignored by `.gitignore:5` (`*.json`) |
-| `phage_traces.db` | **not tracked** | ignored by `.gitignore:29` (`phage_traces*.db`) |
+| `data/loao_eval_result.json` | **tracked** | shipped in `50d34fd`; the blanket `*.json` ignore rule was narrowed by `!data/*.json` in `26669b0` |
+| `data/tune_threshold_result.json` | **tracked** | shipped in `50d34fd`; same exemption |
+| `phage_traces.db` | **not tracked** | matched by the `phage_traces*.db` ignore rule |
 
 **The trace replay view requires `phage_traces.db`, and that file is not in the
 repository.** It is produced locally by running the fire path
-(`scripts/run_marrow.py` or `scripts/run_demo_scene.py`); without it, `/api/sessions`
-returns 404 with an explanatory message rather than an empty list. The same applies
-to the two eval JSONs: the API returns an explicit `error` field for a missing file
-instead of substituting a default, so a blank panel is never mistaken for a real
-measurement of zero.
+(`scripts/run_marrow.py` or `scripts/run_demo_scene.py`); without it,
+`/api/sessions` returns 404 with an explanatory message rather than an empty
+list.
 
-Changing `.gitignore` was out of scope for this branch. If the dashboard is meant
-to work from a clean clone, that decision needs making separately.
+The evaluation view has no such dependency. Both eval JSONs ship, so every figure
+on that tab renders from a clean clone with no local run.
+
+For any missing file the API returns an explicit `error` field rather than
+substituting a default, so a blank panel is never mistaken for a real measurement
+of zero.
 
 ## Endpoints
 

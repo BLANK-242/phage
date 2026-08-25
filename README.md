@@ -147,9 +147,14 @@ In use today:
 
 Planned but not yet called by any code path: Agent Registry, Agent Identity,
 Agent Gateway, Model Armor, Cloud Observability, Firestore, Cloud Run for the
-fleet, `text-embedding-005`, and a dashboard. See
+fleet, and `text-embedding-005`. See
 [What is not wired yet](#what-is-not-wired-yet) for the specifics — this README
 does not claim integrations the repo cannot show.
+
+A read-only dashboard ships in `dashboard/`. It renders the committed evaluation
+artifacts and replays recorded traces, opens every SQLite connection read-only,
+and writes nothing. See [`dashboard/README.md`](dashboard/README.md) for what a
+fresh clone can and cannot show.
 
 ### Region policy — model calls vs. infrastructure
 

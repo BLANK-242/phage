@@ -196,6 +196,67 @@ finds weaknesses in a fleet before an attacker does.
 
 ---
 
+## Run it with no Google Cloud account
+
+**Three commands, no credentials, no project, no billing.** Once dependencies are
+installed the three need no network at all — each was run from a clean checkout
+with ADC unreachable and outbound HTTP blackholed, and the outputs below are what
+came back. Start here: the cloud path in the next section is only needed to
+*generate* new evidence, not to inspect what this repo already measured.
+
+```bash
+uv sync                                    # the only setup step; needs PyPI, not Google Cloud
+```
+
+**1 — The test suite: the wiring, verified.** 12 tests over ARCHIVIST's
+recognition logic, MARROW's pre-fire gate short-circuit, and VACCINATOR's
+mutation path. Fully mocked — the one test that touches real Memory Bank is
+skipped unless you set `PHAGE_LIVE_MEMORY_TESTS=1`.
+
+```bash
+uv run python -m pytest -q
+# -> 11 passed, 1 skipped
+```
+
+**2 — The dashboard: every figure in this README, plus a real trace replay.**
+
+```bash
+PHAGE_TRACES_DB=$PWD/dashboard/data/phage_traces_demo.db uv run uvicorn dashboard.app:app --port 8000
+```
+
+Open <http://127.0.0.1:8000/>. **Both views render from committed artifacts with
+no credentials.** The evaluation view draws the ROC curve, AUC, threshold sweep
+and per-class distance distributions out of `data/loao_eval_result.json` and
+`data/tune_threshold_result.json`. The trace view replays 1,107 real
+OpenTelemetry spans from the redacted fixture at
+`dashboard/data/phage_traces_demo.db` — 36 sessions plus 139 trace groups.
+Among them are the 16 `execute_tool send_email` spans, each sharing a trace with
+`invoke_agent supplier_relay`: SUPPLIER-RELAY actually making the call the
+injection asked for, with the arguments shown exactly as captured. They carry no
+session id, so the picker lists them under the `trace` badge. The dashboard
+computes nothing, calls no model, and opens every SQLite connection read-only.
+
+> Set `PHAGE_TRACES_DB` as shown. Without it the app looks for `phage_traces.db`
+> at the repo root, which is gitignored and absent from a fresh clone, and the
+> trace view returns an explanatory 404 while the evaluation view still renders.
+
+**3 — VACCINATOR's payload tailoring, deterministic.** Skips Gemini entirely and
+renders from the local archetype library, so it shows the per-target
+differentiation — each of the four SAIL targets gets payloads shaped to its own
+declared tool scope — without a single API call:
+
+```bash
+uv run python scripts/vaccinate_demo.py --no-gemini
+# -> SELF-CHECK: PASS — every target got tailored payloads; selection differs per target.
+```
+
+What this path **cannot** show: firing a payload at a live target, SENTINEL's
+Gemma/Gemini triage, MACROPHAGE containment, or ARCHIVIST's Memory Bank
+recognition. Those need Vertex AI and an Agent Engine instance — the next
+section.
+
+---
+
 ## Reproducible spin-up
 
 Every command below was run on a clean checkout of this commit; the outputs
@@ -215,23 +276,86 @@ quoted are real.
 ```bash
 gcloud auth login
 gcloud auth application-default login      # ADC — the credentials the code uses
-gcloud config set project YOUR_PROJECT_ID
+gcloud config set project YOUR_PROJECT_ID  # for the gcloud CLI only — see the trap below
 ```
 
+> **`gcloud config set project` does not affect the code.** Every client in this
+> repo is constructed with an explicit `project=config.PROJECT_ID`, and
+> `config.PROJECT_ID` reads the **`GOOGLE_CLOUD_PROJECT` environment variable**,
+> defaulting to `phage-dev` — the project this was built on. Setting the gcloud
+> config alone leaves every model call and every Memory Bank call pointed at a
+> project you do not have access to, and you will get `PERMISSION_DENIED` with no
+> hint as to why. You must export the variables in
+> [step 4](#4-environment-variables). The same applies to the region: locations
+> are passed explicitly so an ambient `GOOGLE_CLOUD_LOCATION` can never decide
+> them.
+
+#### Provision your own Agent Engine instance
+
 You also need an **Agent Engine instance**, which hosts Memory Bank. ARCHIVIST
-addresses it as `reasoningEngines/<id>` (`src/phage/archivist/memory.py:171`); put
-that numeric id in `PHAGE_AGENT_ENGINE_ID` below. Without one, VACCINATOR,
-SENTINEL and MACROPHAGE still work — only ARCHIVIST's recognition and signature
-writes need it (and `recognize()` fails **open**, so the fire loop keeps running).
+addresses it as `reasoningEngines/<id>` (`src/phage/archivist/memory.py:171`).
+**There is no `gcloud` command for this.** Cloud SDK 579.0.0's GA `gcloud ai`
+group has no agent-engines or reasoning-engines subgroup (its groups are
+`custom-jobs`, `endpoints`, `hp-tuning-jobs`, `index-endpoints`, `indexes`,
+`model-garden`, `model-monitoring-jobs`, `models`, `operations`,
+`persistent-resources`, `tensorboards`, `tuning-jobs`), and `gcloud beta ai` /
+`gcloud alpha ai` require installing the `beta` / `alpha` components first. Use
+the Python SDK, which is already in this repo's locked dependencies:
+
+```bash
+uv run python -c "
+import agentplatform
+client = agentplatform.Client(project='YOUR_PROJECT_ID', location='us-central1')
+ae = client.agent_engines.create()
+print(ae.api_resource.name)
+"
+# -> projects/YOUR_PROJECT_ID/locations/us-central1/reasoningEngines/1234567890123456789
+```
+
+Take the **trailing numeric id** into `PHAGE_AGENT_ENGINE_ID` in step 4.
+(`PHAGE_PROJECT_NUMBER` does not come from this output — get it from the
+`gcloud projects describe` line in step 4.)
+
+`create()` with no `agent` argument is deliberate: it yields "a lightweight
+instance that cannot be queried (but can be updated to future instances that can
+be)" — `agentplatform/_genai/agent_engines.py`, `AgentEngines.create` docstring.
+MARROW is **not** deployed to Agent Engine Runtime (see
+[What is not wired yet](#what-is-not-wired-yet)), so nothing here needs a
+queryable engine or a staging bucket. `agentplatform.Client` is the same client
+ARCHIVIST itself constructs (`src/phage/archivist/memory.py:172-175`); the older
+`vertexai.Client` still works but is deprecated in favour of it.
+
+> **How far this was verified.** On the build machine: `agentplatform.Client`
+> constructs, authenticates via ADC, and round-trips a real read against the
+> live API — `client.agent_engines.get(name='reasoningEngines/<id>')` returned
+> the resource name in the form shown above. `client.agent_engines` exposes
+> `create`, `get`, `list` and `delete`, and `create`'s signature accepts being
+> called with no arguments. **The `create()` call itself was not executed**,
+> because it provisions a real billable resource; it is the call that built the
+> instance this project runs on, recorded at the time via the older
+> `vertexai.Client` form of the same method. If it fails for you, the likely
+> cause is Express Mode — Express Mode cannot create an Agent Engine instance,
+> and creating one is the check that you are not in it.
+
+Without an Agent Engine instance, VACCINATOR, SENTINEL and MACROPHAGE still work
+and `recognize()` fails **open** (`src/phage/archivist/memory.py`, `recognize`
+docstring), so the MARROW fire loop keeps running. But the two commands in
+[step 6](#6-run-the-demo) will **not** survive: `pretake_check.py` lists Memory
+Bank scopes unguarded, and `run_demo_scene.py` calls `record()`, which
+deliberately propagates its exceptions. Both raise rather than degrade. The
+recognition scene is the demo, and it needs a real engine.
 
 ### 3. Install and enable APIs
 
 ```bash
 git clone <repo> && cd phage
+export GOOGLE_CLOUD_PROJECT=your-project-id   # required — bootstrap.sh exits without it
 scripts/bootstrap.sh     # uv sync + gcloud config + enable APIs + IAM grants
 ```
 
-`bootstrap.sh` is idempotent and safe to re-run. To do just the Python side:
+`bootstrap.sh` reads `GOOGLE_CLOUD_PROJECT` (or `PROJECT_ID`) and **fails with a
+clear message if neither is set** — it will not silently target the project this
+was built on. It is idempotent and safe to re-run. To do just the Python side:
 
 ```bash
 uv sync                  # -> Resolved 92 packages
@@ -244,18 +368,32 @@ APIs it enables: `aiplatform`, `run`, `cloudbuild`, `artifactregistry`,
 
 ### 4. Environment variables
 
-**All of them have working defaults** — nothing is required for a run against the
-project this was built on. Override only what differs for yours:
+Every default below points at the project this was built on, which you cannot
+access. **The first three are mandatory for you; the rest can stay as they are.**
+Paste this block into your shell — nothing in the cloud path works until you do:
 
-| Variable | Default | What it controls |
-|---|---|---|
-| `GOOGLE_CLOUD_PROJECT` | `phage-dev` | Project id for every client |
-| `PHAGE_PROJECT_NUMBER` | `680106551305` | Used to build the Agent Engine resource name |
-| `PHAGE_AGENT_ENGINE_ID` | `1868793184486686720` | Memory Bank host — **change this for your project** |
-| `PHAGE_INFRA_LOCATION` | `us-central1` | Agent Engine, and the Memory Bank it hosts |
-| `PHAGE_MODEL_LOCATION` | `global` | Model inference — see [Region policy](#region-policy--model-calls-vs-infrastructure) |
-| `PHAGE_GEMINI_MODEL` | `gemini-3.5-flash` | VACCINATOR authoring, SENTINEL escalation |
-| `PHAGE_GEMMA_MODEL` | `gemma-4-26b-a4b-it-maas` | SENTINEL first-pass triage |
+```bash
+export GOOGLE_CLOUD_PROJECT=your-project-id          # REQUIRED
+export PHAGE_PROJECT_NUMBER=your-project-number      # REQUIRED — gcloud projects describe "$GOOGLE_CLOUD_PROJECT" --format='value(projectNumber)'
+export PHAGE_AGENT_ENGINE_ID=your-engine-id          # REQUIRED — the numeric id from step 2
+```
+
+| Variable | Default | Change it? | What it controls |
+|---|---|---|---|
+| `GOOGLE_CLOUD_PROJECT` | `phage-dev` | **yes** | Project id for every client |
+| `PHAGE_PROJECT_NUMBER` | `680106551305` | **yes** | Used to build the Agent Engine resource name |
+| `PHAGE_AGENT_ENGINE_ID` | `1868793184486686720` | **yes** | Memory Bank host — the instance you created in step 2 |
+| `PHAGE_INFRA_LOCATION` | `us-central1` | no | Agent Engine, and the Memory Bank it hosts |
+| `PHAGE_MODEL_LOCATION` | `global` | no | Model inference — see [Region policy](#region-policy--model-calls-vs-infrastructure) |
+| `PHAGE_GEMINI_MODEL` | `gemini-3.5-flash` | no | VACCINATOR authoring, SENTINEL escalation |
+| `PHAGE_GEMMA_MODEL` | `gemma-4-26b-a4b-it-maas` | no | SENTINEL first-pass triage |
+| `PHAGE_TRACES_DB` | `phage_traces.db` at the repo root | only for the dashboard | Which span database the dashboard reads — see [Run it with no Google Cloud account](#run-it-with-no-google-cloud-account) |
+| `PHAGE_LIVE_MEMORY_TESTS` | unset | no | Set to `1` to un-skip the one test that hits real Memory Bank |
+
+**Environment variables are the only channel.** These are read in
+`src/phage/config.py` and in each `agents/*/agent.py`; there is no root `.env`
+and no config file that overrides them. `gcloud config set project` has no effect
+on any of them — see the trap in [step 2](#2-google-cloud-setup).
 
 No service-account key files are needed or committed (`*.json` and `.env` are
 gitignored); auth is ADC locally and the service account in production.
@@ -315,6 +453,45 @@ To run the whole fleet loop instead of the single scene:
 uv run python scripts/run_marrow.py
 ```
 
+### 7. Reproduce the refusal-rate measurement
+
+We measured what honesty costs in a system prompt. VACCINATOR's tailoring system
+instruction (`_TAILOR_SYSTEM` in `src/phage/vaccinator/engine.py`) establishes the
+work as authorized. The committed wording claims the targets are "registered in
+our own Agent Registry" — and Agent Registry is
+[not wired here](#what-is-not-wired-yet). Correcting that one clause to the
+accurate mechanism, a static version-controlled fleet manifest, flipped **five of
+seven archetypes from never refusing to always refusing**:
+
+| Wording | Refused | Rate |
+|---|---|---|
+| Committed — "our own Agent Registry" | 1 / 70 | **0.014** |
+| Accurate — "our own fleet manifest" | 50 / 70 | **0.714** |
+
+The refusals are deterministic per archetype, not spread thin: under the accurate
+wording five archetypes refused 10/10 and two refused 0/10, at temperature 0.7
+with three attempts inside every logical call. Nothing landed in between.
+
+```bash
+uv run python scripts/refusal_rate_experiment.py --reps 10
+# -> writes data/refusal_rate_result.json (140 logical calls, ~28 min wall clock)
+# -> use --reps 1 for a smoke run
+```
+
+This is a **measurement, not a search.** Exactly two wordings are tested, both
+fixed in the script, and no outcome changes which one ships — the committed
+`_TAILOR_SYSTEM` stays exactly as it is either way. Rewording until the refusals
+stop is the move [the project's red line forbids](#two-questions-a-judge-will-ask-pre-answered):
+the correct response to a refusal is the deterministic local rendering, which
+every archetype always has. The inaccurate clause was left in place and disclosed
+rather than quietly fixed at the cost of the rule. Full analysis, including the
+per-archetype breakdown: [`docs/writeup.md`](docs/writeup.md).
+
+`--reps 10` needs Vertex AI. To read the result without running it, the committed
+artifact is `data/refusal_rate_result.json`, and the dashboard's evaluation view
+renders offline (see
+[Run it with no Google Cloud account](#run-it-with-no-google-cloud-account)).
+
 **Auth & secrets:** authentication is via Application Default Credentials locally
 and the Cloud Run service account in production. No service-account key files are
 committed (`*.json` and `.env` are gitignored); agent config carries safe
@@ -342,6 +519,13 @@ Editor grant from default service accounts.
 threshold **0.59**, **AUC 0.9727**, **TPR 1.00**, **FPR 0.1833** (11/60 held-out
 queries).
 
+**Refusal cost of an accurate prompt** (`scripts/refusal_rate_experiment.py`, 140
+logical calls): correcting one untrue clause in VACCINATOR's tailoring prompt
+raised Gemini's refusal rate from **0.014** to **0.714**, flipping five of seven
+archetypes from never refusing to always refusing. The inaccurate wording was
+left in place and disclosed rather than reworded to dodge the classifier — see
+[step 7](#7-reproduce-the-refusal-rate-measurement).
+
 **Every figure above is checked against a committed artifact.** Nothing here
 is recomputed at read time:
 
@@ -356,6 +540,8 @@ is recomputed at read time:
 | Signature format choice | F0 | `data/ab_test_signature_formats_result.json` |
 | Labelled dataset | 65 records | `data/recognition_pairs.jsonl` |
 | Identical-text distance floor | 0.3861411047948597 | `scripts/probe_distance_output.txt` |
+| Refusal rate, committed wording | 0.014 (1/70) | `data/refusal_rate_result.json` → `summary.A_committed` |
+| Refusal rate, accurate wording | 0.714 (50/70) | `data/refusal_rate_result.json` → `summary.B_fleet_manifest` |
 
 **Phase 1 live service (private):** `https://phage-hello-680106551305.us-central1.run.app`
 

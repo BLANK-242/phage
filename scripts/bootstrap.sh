@@ -6,8 +6,34 @@
 # Deploy and data-plane setup are added in later phases.
 set -euo pipefail
 
-PROJECT_ID="${PROJECT_ID:-phage-dev}"
+# Project id, in precedence order: GOOGLE_CLOUD_PROJECT (the variable the PHAGE
+# code itself reads, src/phage/config.py) first, then PROJECT_ID as an alias.
+# There is deliberately NO default: this script sets gcloud config, enables APIs
+# and grants IAM, and a default would aim all three at the project PHAGE was
+# built on — a project you almost certainly cannot touch. Failing loudly with
+# the fix in the message beats a silent PERMISSION_DENIED three commands later.
+PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-${PROJECT_ID:-}}"
 INFRA_REGION="${INFRA_REGION:-us-central1}"
+
+if [[ -z "${PROJECT_ID}" ]]; then
+  cat >&2 <<'ERR'
+ERROR: no Google Cloud project set.
+
+  Set the project this should bootstrap, then re-run:
+
+      export GOOGLE_CLOUD_PROJECT=your-project-id
+      scripts/bootstrap.sh
+
+  GOOGLE_CLOUD_PROJECT is the same variable src/phage/config.py reads at
+  runtime, so exporting it configures the bootstrap AND the code. Note that
+  `gcloud config set project` alone does NOT reach the code: every client is
+  built with an explicit project= from that variable.
+
+  To run PHAGE with no Google Cloud account at all, skip this script entirely —
+  see "Run it with no Google Cloud account" in README.md.
+ERR
+  exit 1
+fi
 
 echo "==> PHAGE bootstrap (project=${PROJECT_ID}, infra region=${INFRA_REGION})"
 

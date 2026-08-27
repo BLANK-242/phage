@@ -47,9 +47,11 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 def _read_json(path: Path) -> dict[str, Any]:
     """Parse a committed result file, or return an explicit error object.
 
-    A missing file is a real possibility here rather than a defensive
-    afterthought: `data/*.json` is matched by `.gitignore`, so a fresh clone
-    has none of these. Saying so is more useful than serving zeros.
+    These files ARE committed — the blanket `*.json` ignore rule carries a
+    `!data/*.json` exemption precisely so a fresh clone can verify the reported
+    figures — so on a clean checkout this path does not fire. It stays because a
+    result file can still be absent mid-regeneration, and naming the missing file
+    is more useful than serving zeros that read as a real measurement.
     """
     if not path.exists():
         return {"error": f"{path.relative_to(REPO_ROOT)} not found on disk"}
